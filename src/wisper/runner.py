@@ -1,5 +1,6 @@
 import os
 import sys
+from enum import Enum
 from logging import getLogger, basicConfig
 from pathlib import Path
 from datetime import datetime
@@ -36,6 +37,19 @@ from faster_whisper import WhisperModel
 logger = getLogger(__name__)
 basicConfig(format="%(asctime)s [%(levelname)s] %(message)s")
 
+
+class ModelSize(str, Enum):
+    tiny = "tiny"
+    base = "base"
+    small = "small"
+    medium = "medium"
+    large_v1 = "large-v1"
+    large_v2 = "large-v2"
+    large_v3 = "large-v3"
+    large_v3_turbo = "large-v3-turbo"
+    distil_large_v3 = "distil-large-v3"
+
+
 app = typer.Typer()
 
 SAMPLE_FILE = Path(__file__).parent.parent.parent / "assets" / "sample.wav"
@@ -51,7 +65,7 @@ OUTPUT_FILE_ARG = Annotated[
                  help="Path to save the Markdown output (default: same name as input, .md extension)"),
 ]
 MODEL_SIZE_ARG = Annotated[
-    str, typer.Option("--model", "-m", help="Whisper model size")
+    ModelSize, typer.Option("--model", "-m", help="Whisper model size")
 ]
 LANGUAGE_ARG = Annotated[
     str, typer.Option("--language", "-l", help="Audio language code")
@@ -70,7 +84,7 @@ TZ: str = "Asia/Tokyo"
 def transcribe(
         input_file: INPUT_FILE_ARG = str(SAMPLE_FILE),
         output_file: OUTPUT_FILE_ARG = None,
-        model_size: MODEL_SIZE_ARG = "large-v3",
+        model_size: MODEL_SIZE_ARG = ModelSize.large_v3,
         language: LANGUAGE_ARG = "ja",
         timestamps: TIMESTAMP_ARG = False,
         is_debug: DEBUG_ARG = False
