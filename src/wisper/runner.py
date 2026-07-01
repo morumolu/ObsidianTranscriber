@@ -42,21 +42,21 @@ DEFAULT_FILE = Path(__file__).parent.parent.parent / "assets" / "sample.wav"
 
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}
 
-InputFileArg = Annotated[
+INPUT_FILE_ARG = Annotated[
     str, typer.Option("--input", "-i", help="Path to the audio file to transcribe")
 ]
-OutputFileArg = Annotated[
+OUTPUT_FILE_ARG = Annotated[
     Optional[str],
     typer.Option("--output", "-o",
                  help="Path to save the Markdown output (default: same name as input, .md extension)"),
 ]
-ModelSizeArg = Annotated[
+MODEL_SIZE_ARG = Annotated[
     str, typer.Option("--model", "-m", help="Whisper model size")
 ]
-LanguageArg = Annotated[
+LANGUAGE_ARG = Annotated[
     str, typer.Option("--language", "-l", help="Audio language code")
 ]
-TimestampsArg = Annotated[
+TIMESTAMP_ARG = Annotated[
     bool, typer.Option("--timestamps", "-t", help="Include per-segment timestamps in output")
 ]
 DEBUG_ARG = Annotated[
@@ -68,11 +68,11 @@ TZ: str = "Asia/Tokyo"
 
 @app.command()
 def transcribe(
-        input_file: InputFileArg = str(DEFAULT_FILE),
-        output_file: OutputFileArg = None,
-        model_size: ModelSizeArg = "large-v3",
-        language: LanguageArg = "ja",
-        timestamps: TimestampsArg = False,
+        input_file: INPUT_FILE_ARG = str(DEFAULT_FILE),
+        output_file: OUTPUT_FILE_ARG = None,
+        model_size: MODEL_SIZE_ARG = "large-v3",
+        language: LANGUAGE_ARG = "ja",
+        timestamps: TIMESTAMP_ARG = False,
         is_debug: DEBUG_ARG = False
 ):
     """Transcribe an audio file and save as an Obsidian-friendly Markdown note."""
@@ -90,12 +90,6 @@ def transcribe(
     typer.echo(f"Transcribing: {input_file}")
     segments, info = model.transcribe(input_file, language=language)
 
-    segments = [tee(segment) for segment in segments]
-
-    segment_texts = (seg.text.strip() for seg in segments)
-
-    full_text = " ".join(segment_texts)
-
     now = datetime.now(tz=ZoneInfo(TZ))
     frontmatter = (
         "---\n"
@@ -107,6 +101,14 @@ def transcribe(
         "verified: false\n"
         "---\n\n"
     )
+
+    logger.debug("%s", frontmatter)
+
+    segments = [tee(segment) for segment in segments]
+
+    segment_texts = (seg.text.strip() for seg in segments)
+
+    full_text = " ".join(segment_texts)
 
     body = f"# {input_path.stem}\n\n{full_text}\n"
 
