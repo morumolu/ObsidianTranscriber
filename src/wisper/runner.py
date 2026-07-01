@@ -38,7 +38,7 @@ basicConfig(format="%(asctime)s [%(levelname)s] %(message)s")
 
 app = typer.Typer()
 
-DEFAULT_FILE = Path(__file__).parent.parent.parent / "assets" / "sample.wav"
+SAMPLE_FILE = Path(__file__).parent.parent.parent / "assets" / "sample.wav"
 
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}
 
@@ -68,7 +68,7 @@ TZ: str = "Asia/Tokyo"
 
 @app.command()
 def transcribe(
-        input_file: INPUT_FILE_ARG = str(DEFAULT_FILE),
+        input_file: INPUT_FILE_ARG = str(SAMPLE_FILE),
         output_file: OUTPUT_FILE_ARG = None,
         model_size: MODEL_SIZE_ARG = "large-v3",
         language: LANGUAGE_ARG = "ja",
