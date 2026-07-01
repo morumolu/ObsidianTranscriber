@@ -8,4 +8,5 @@ dependencies = [
     "nvidia-cublas-cu12>=12.9.2.10",
     "nvidia-cudnn-cu12>=9.23.2.1",
     "typer>=0.25.1",
+    "tzdata>=2026.2",
 ]
