@@ -1,6 +1,22 @@
+import os
+import sys
+
 import typer
-from faster_whisper import WhisperModel
 from pathlib import Path
+
+if sys.platform == "win32":
+    nvidia_base = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
+    bin_dirs = []
+    if nvidia_base.exists():
+        for pkg_dir in nvidia_base.iterdir():
+            bin_dir = pkg_dir / "bin"
+            if bin_dir.exists():
+                bin_dirs.append(str(bin_dir))
+
+    if bin_dirs:
+        os.environ["PATH"] = os.pathsep.join(bin_dirs) + os.pathsep + os.environ["PATH"]
+
+from faster_whisper import WhisperModel
 
 app = typer.Typer()
 
