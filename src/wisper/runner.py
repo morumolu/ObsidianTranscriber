@@ -1,9 +1,12 @@
 import os
 import sys
+from logging import getLogger, basicConfig
 from pathlib import Path
 from datetime import datetime
 from typing import Annotated, Optional
 from zoneinfo import ZoneInfo
+
+from faster_whisper.transcribe import Segment
 
 
 def setup_cuda_dll_path() -> None:
@@ -30,6 +33,9 @@ setup_cuda_dll_path()
 import typer
 from faster_whisper import WhisperModel
 
+logger = getLogger(__name__)
+basicConfig(format="%(asctime)s [%(levelname)s] %(message)s")
+
 app = typer.Typer()
 
 DEFAULT_FILE = Path(__file__).parent.parent.parent / "assets" / "sample.wav"
@@ -53,6 +59,9 @@ LanguageArg = Annotated[
 TimestampsArg = Annotated[
     bool, typer.Option("--timestamps", "-t", help="Include per-segment timestamps in output")
 ]
+DEBUG_ARG = Annotated[
+    bool, typer.Option("--debug", "-d", help="Enable debug logging")
+]
 
 TZ: str = "Asia/Tokyo"
 
@@ -64,8 +73,11 @@ def transcribe(
         model_size: ModelSizeArg = "large-v3",
         language: LanguageArg = "ja",
         timestamps: TimestampsArg = False,
+        is_debug: DEBUG_ARG = False
 ):
     """Transcribe an audio file and save as an Obsidian-friendly Markdown note."""
+    logger.setLevel(is_debug)
+
     input_path = Path(input_file)
     validate_input_file(input_path)
 
@@ -77,8 +89,12 @@ def transcribe(
 
     typer.echo(f"Transcribing: {input_file}")
     segments, info = model.transcribe(input_file, language=language)
-    segments = list(segments)
-    full_text = " ".join(seg.text.strip() for seg in segments)
+
+    segments = [tee(segment) for segment in segments]
+
+    segment_texts = (seg.text.strip() for seg in segments)
+
+    full_text = " ".join(segment_texts)
 
     now = datetime.now(tz=ZoneInfo(TZ))
     frontmatter = (
@@ -134,6 +150,11 @@ def validate_output_path(output_path: Path) -> None:
     if output_path.exists() and not os.access(output_path, os.W_OK):
         typer.secho(f"Error: Output file is not writable: {output_path}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
+
+
+def tee(segment: Segment):
+    logger.debug("Segment: [%s - %s] %s", segment.start, segment.end, segment.text.strip())
+    return segment
 
 
 if __name__ == "__main__":
