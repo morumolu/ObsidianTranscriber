@@ -1,6 +1,5 @@
 import os
 import sys
-from enum import Enum
 from logging import getLogger, basicConfig
 from pathlib import Path
 from datetime import datetime
@@ -8,6 +7,8 @@ from typing import Annotated, Optional
 from zoneinfo import ZoneInfo
 
 from faster_whisper.transcribe import Segment
+
+from model_size import ModelSize
 
 
 def setup_cuda_dll_path() -> None:
@@ -36,19 +37,6 @@ from faster_whisper import WhisperModel
 
 logger = getLogger(__name__)
 basicConfig(format="%(asctime)s [%(levelname)s] %(message)s")
-
-
-class ModelSize(str, Enum):
-    tiny = "tiny"
-    base = "base"
-    small = "small"
-    medium = "medium"
-    large_v1 = "large-v1"
-    large_v2 = "large-v2"
-    large_v3 = "large-v3"
-    large_v3_turbo = "large-v3-turbo"
-    distil_large_v3 = "distil-large-v3"
-
 
 app = typer.Typer()
 
