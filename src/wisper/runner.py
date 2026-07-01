@@ -4,6 +4,7 @@ import sys
 import typer
 from pathlib import Path
 
+# Add NVIDIA bin directories to PATH on Windows
 if sys.platform == "win32":
     nvidia_base = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
     bin_dirs = []
