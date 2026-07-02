@@ -68,6 +68,8 @@ class Recorder:
                 dtype="float32",
                 callback=self._on_audio,
             )
+
+            assert self._stream is not None
             self._stream.start()
         except Exception as exc:
             self._stream = None
