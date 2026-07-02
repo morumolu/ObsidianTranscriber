@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from faster_whisper.utils import _MODELS as _REPO_IDS
+from faster_whisper.utils import _MODELS as _REPO_IDS # noqa
 from huggingface_hub import scan_cache_dir
 from huggingface_hub.errors import CacheNotFound
 
