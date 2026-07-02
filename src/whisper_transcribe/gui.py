@@ -13,7 +13,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
 from .model_size import ModelSize
 from .recorder import SAMPLE_RATE, Recorder, RecorderError
-from .runner import SUPPORTED_EXTENSIONS, transcribe_file
+from .runner import SUPPORTED_EXTENSIONS, TranscriptionCancelled, transcribe_file
 
 APP_TITLE = "Whisper - Audio Transcription Tool For Obsidian"
 APP_VERSION = "0.1.0"
@@ -43,6 +43,9 @@ FONT_LOG = ("Consolas", 9)
 # ワーカースレッドから GUI スレッドへ渡すメッセージ (種別, ペイロード)
 Message = tuple[str, object]
 
+# テスト書き起こしで処理する先頭の秒数
+TEST_DURATION = 10.0
+
 # 録音の保存フォーマット (拡張子, 表示名)。メニューと保存ダイアログで共用
 RECORD_FORMATS: list[tuple[str, str]] = [
     (".mp3", "MP3"),
@@ -68,6 +71,7 @@ class WhisperGui:
         self.recorder = Recorder()
         self._record_timer: str | None = None
         self.record_format_var = tk.StringVar(value=".mp3")
+        self.cancel_event: threading.Event | None = None
 
         self._setup_style()
         self._build_menu()
@@ -180,6 +184,11 @@ class WhisperGui:
 
         tool_menu = tk.Menu(menubar, tearoff=False)
         tool_menu.add_command(label="文字起こし開始", accelerator="F5", command=self._start)
+        tool_menu.add_command(
+            label=f"テスト書き起こし (先頭{TEST_DURATION:.0f}秒)",
+            command=lambda: self._start(test=True),
+        )
+        tool_menu.add_command(label="文字起こしを中断", accelerator="Esc", command=self._cancel)
         tool_menu.add_command(label="録音開始/停止", accelerator="Ctrl+R", command=self._toggle_record)
         tool_menu.add_separator()
         tool_menu.add_command(label="モデルキャッシュ管理...", command=self._open_cache_dialog)
@@ -207,6 +216,7 @@ class WhisperGui:
         self.root.bind_all("<Control-q>", lambda _e: self.root.destroy())
         self.root.bind_all("<Control-r>", lambda _e: self._toggle_record())
         self.root.bind_all("<F5>", lambda _e: self._start())
+        self.root.bind_all("<Escape>", lambda _e: self._cancel())
 
     def _show_about(self) -> None:
         messagebox.showinfo(
@@ -297,6 +307,16 @@ class WhisperGui:
             action_frame, text="文字起こし開始", style="Accent.TButton", command=self._start
         )
         self.run_button.pack(side="left", fill="x", expand=True)
+        self.test_button = ttk.Button(
+            action_frame,
+            text=f"テスト ({TEST_DURATION:.0f}秒)",
+            command=lambda: self._start(test=True),
+        )
+        self.test_button.pack(side="left", padx=(8, 0), ipady=4)
+        self.cancel_button = ttk.Button(
+            action_frame, text="中断", state="disabled", command=self._cancel
+        )
+        self.cancel_button.pack(side="left", padx=(8, 0), ipady=4)
 
         # 進捗バー + ステータス
         self.progress = ttk.Progressbar(self.root, mode="determinate", maximum=100)
@@ -449,7 +469,14 @@ class WhisperGui:
         self._set_input(path)
 
     # --------------------------------------------------------------- running
-    def _start(self) -> None:
+    def _set_running(self, running: bool) -> None:
+        """実行中/待機中に応じてボタンの有効・無効を切り替える。"""
+        state = "disabled" if running else "normal"
+        self.run_button.configure(state=state)
+        self.test_button.configure(state=state)
+        self.cancel_button.configure(state="normal" if running else "disabled")
+
+    def _start(self, test: bool = False) -> None:
         if self.worker and self.worker.is_alive():
             return
         if self.recorder.is_recording:
@@ -463,11 +490,12 @@ class WhisperGui:
             messagebox.showinfo("出力なし", "出力ファイル名を入力してください。")
             return
 
-        self.run_button.configure(state="disabled")
+        self._set_running(True)
         self.progress.configure(value=0)
-        self.status_var.set("処理中...")
+        self.status_var.set("テスト処理中..." if test else "処理中...")
         self._clear_log()
 
+        self.cancel_event = threading.Event()
         self.worker = threading.Thread(
             target=self._worker,
             kwargs=dict(
@@ -476,10 +504,19 @@ class WhisperGui:
                 model_size=ModelSize(self.model_var.get()),
                 language=self.language_var.get().strip() or "ja",
                 timestamps=self.timestamps_var.get(),
+                cancel_event=self.cancel_event,
+                test=test,
             ),
             daemon=True,
         )
         self.worker.start()
+
+    def _cancel(self) -> None:
+        if not (self.worker and self.worker.is_alive() and self.cancel_event):
+            return
+        self.cancel_event.set()
+        self.cancel_button.configure(state="disabled")
+        self.status_var.set("中断中...")
 
     def _worker(
             self,
@@ -488,6 +525,8 @@ class WhisperGui:
             model_size: ModelSize,
             language: str,
             timestamps: bool,
+            cancel_event: threading.Event,
+            test: bool,
     ) -> None:
         """別スレッドで実行。tk には触れず queue 経由で通知する。"""
         try:
@@ -499,8 +538,13 @@ class WhisperGui:
                 timestamps=timestamps,
                 progress=lambda cur, total: self.msg_queue.put(("progress", (cur, total))),
                 log=lambda msg: self.msg_queue.put(("log", msg)),
+                cancel_event=cancel_event,
+                max_duration=TEST_DURATION if test else None,
+                save_output=not test,
             )
-            self.msg_queue.put(("done", str(output_path)))
+            self.msg_queue.put(("test_done" if test else "done", str(output_path)))
+        except TranscriptionCancelled:
+            self.msg_queue.put(("cancelled", None))
         except Exception as exc:  # noqa: BLE001 - GUIに表示するため全捕捉
             self.msg_queue.put(("log", traceback.format_exc()))
             self.msg_queue.put(("error", str(exc)))
@@ -519,12 +563,21 @@ class WhisperGui:
                 elif kind == "done":
                     self.progress.configure(value=100)
                     self.status_var.set(f"完了: {payload}")
-                    self.run_button.configure(state="normal")
+                    self._set_running(False)
                     messagebox.showinfo("完了", f"保存しました:\n{payload}")
+                elif kind == "test_done":
+                    self.progress.configure(value=100)
+                    self.status_var.set("テスト完了 (結果は処理ログを確認、ファイルは未保存)")
+                    self._set_running(False)
+                elif kind == "cancelled":
+                    self.progress.configure(value=0)
+                    self.status_var.set("中断しました")
+                    self._set_running(False)
+                    self._append_log("文字起こしを中断しました。")
                 elif kind == "error":
                     self.progress.configure(value=0)
                     self.status_var.set(f"エラー: {payload}")
-                    self.run_button.configure(state="normal")
+                    self._set_running(False)
                     messagebox.showerror("エラー", str(payload))
         except queue.Empty:
             pass

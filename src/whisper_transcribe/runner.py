@@ -1,13 +1,20 @@
+import ctypes.util
 import logging
 import os
 import sys
+import threading
 from datetime import datetime
+from functools import lru_cache
 from logging import basicConfig, getLogger
 from pathlib import Path
 from typing import Annotated, Callable
 from zoneinfo import ZoneInfo
 
 from .model_size import ModelSize
+
+
+class TranscriptionCancelled(Exception):
+    """ユーザー操作による文字起こしの中断。"""
 
 
 def setup_cuda_dll_path() -> None:
@@ -80,6 +87,32 @@ def model_name(model_size: ModelSize | str) -> str:
     return model_size.value if isinstance(model_size, ModelSize) else str(model_size)
 
 
+@lru_cache(maxsize=1)
+def cuda_runtime_available() -> bool:
+    """CUDA ランタイム DLL (cublas / cuDNN) が見つかるかを確認する。
+
+    ctranslate2 は実行時に PATH から DLL をロードするため、
+    venv の nvidia パッケージ・システムの CUDA Toolkit いずれでも
+    PATH 上に DLL があれば True になる。
+    """
+    return all(
+        ctypes.util.find_library(dll) is not None
+        for dll in ("cublas64_12", "cudnn_ops64_9")
+    )
+
+
+def resolve_device(device: str) -> str:
+    """device 指定を実行環境に応じて解決する。
+
+    ctranslate2 の "auto" は GPU ドライバの有無だけで CUDA を選ぶため、
+    CUDA ランタイム DLL が無い環境 (CUDA非同梱の exe など) では実行時に失敗する。
+    DLL がロードできない場合は CPU に固定する。
+    """
+    if device == "auto" and not cuda_runtime_available():
+        return "cpu"
+    return device
+
+
 def load_model(
         model_size: ModelSize | str,
         device: str = "auto",
@@ -90,6 +123,7 @@ def load_model(
     device / compute_type は既定で "auto"。CUDA が利用可能なら GPU + float16、
     無ければ CPU + int8 が自動選択される（ctranslate2 の auto 解決）。
     """
+    device = resolve_device(device)
     return WhisperModel(model_name(model_size), device=device, compute_type=compute_type)
 
 
@@ -104,11 +138,16 @@ def transcribe_file(
         model: WhisperModel | None = None,
         device: str = "auto",
         compute_type: str = "auto",
-) -> Path:
+        cancel_event: threading.Event | None = None,
+        max_duration: float | None = None,
+        save_output: bool = True,
+) -> Path | None:
     """音声ファイルを文字起こしし、Obsidian向けMarkdownとして保存する中核処理。
 
     CLI と GUI の双方から呼び出す。progress / log は任意のコールバック。
     入力・出力が不正な場合は FileNotFoundError / ValueError を送出する。
+    cancel_event がセットされると TranscriptionCancelled を送出する（ファイルは保存しない）。
+    max_duration を指定すると先頭 N 秒で打ち切る。save_output=False で保存をスキップし None を返す。
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -120,25 +159,41 @@ def transcribe_file(
         if log:
             log(msg)
 
+    device = resolve_device(device)
     emit(f"Loading model: {model_name(model_size)} (device={device}, compute={compute_type})")
     if model is None:
         model = load_model(model_size, device=device, compute_type=compute_type)
 
+    def check_cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise TranscriptionCancelled()
+
+    check_cancelled()
     emit(f"Transcribing: {input_path.name}")
     segments, info = model.transcribe(str(input_path), language=language)
 
     total = float(info.duration or 0.0)
+    if max_duration is not None:
+        total = min(total, max_duration)
+        emit(f"Test mode: first {max_duration:.0f}s only")
     emit(f"Duration: {total:.1f}s / detected language: {info.language}")
 
     collected: list[Segment] = []
     for segment in segments:
+        check_cancelled()
         text = segment.text.strip()
         emit(f"[{segment.start:.2f}s - {segment.end:.2f}s] {text}")
         collected.append(segment)
         if progress and total:
             progress(min(segment.end, total), total)
+        if max_duration is not None and segment.end >= max_duration:
+            break
     if progress and total:
         progress(total, total)
+
+    if not save_output:
+        emit("Test transcription finished (not saved).")
+        return None
 
     now = datetime.now(tz=ZoneInfo(TZ))
     frontmatter = (
