@@ -10,6 +10,15 @@ import soundfile as sf
 SAMPLE_RATE = 16000
 CHANNELS = 1
 
+# 保存形式: 拡張子 -> (libsndfile フォーマット, サブタイプ)
+# OGG Vorbis は音声用途で WAV の約 1/7 のサイズになり、Whisper の精度への影響もほぼない
+SAVE_FORMATS: dict[str, tuple[str, str | None]] = {
+    ".ogg": ("OGG", "VORBIS"),
+    ".flac": ("FLAC", None),
+    ".mp3": ("MP3", None),
+    ".wav": ("WAV", "PCM_16"),
+}
+
 
 class RecorderError(RuntimeError):
     """録音デバイスの初期化・操作に失敗したことを表す。"""
@@ -87,6 +96,10 @@ class Recorder:
 
     @staticmethod
     def save(path: Path, data: np.ndarray) -> Path:
-        """音声データを WAV として保存する。"""
-        sf.write(str(path), data, SAMPLE_RATE)
+        """音声データを拡張子に応じた形式で保存する。"""
+        fmt = SAVE_FORMATS.get(path.suffix.lower())
+        if fmt is None:
+            supported = ", ".join(sorted(SAVE_FORMATS))
+            raise ValueError(f"未対応の保存形式です: '{path.suffix}' (対応: {supported})")
+        sf.write(str(path), data, SAMPLE_RATE, format=fmt[0], subtype=fmt[1])
         return path

@@ -49,6 +49,14 @@ FONT_LOG = ("Consolas", 9)
 # ワーカースレッドから GUI スレッドへ渡すメッセージ (種別, ペイロード)
 Message = tuple[str, object]
 
+# 録音の保存フォーマット (拡張子, 表示名)。メニューと保存ダイアログで共用
+RECORD_FORMATS: list[tuple[str, str]] = [
+    (".mp3", "MP3"),
+    (".ogg", "OGG Vorbis"),
+    (".flac", "FLAC (可逆圧縮)"),
+    (".wav", "WAV (無圧縮)"),
+]
+
 
 class WhisperGui:
     """音声ファイルをドラッグ&ドロップして文字起こしする GUI。"""
@@ -65,6 +73,7 @@ class WhisperGui:
         self.worker: threading.Thread | None = None
         self.recorder = Recorder()
         self._record_timer: str | None = None
+        self.record_format_var = tk.StringVar(value=".mp3")
 
         self._setup_style()
         self._build_menu()
@@ -183,6 +192,15 @@ class WhisperGui:
         tool_menu.add_separator()
         tool_menu.add_command(label="ログをクリア", command=self._clear_log)
         menubar.add_cascade(label="ツール", menu=tool_menu)
+
+        settings_menu = tk.Menu(menubar, tearoff=False)
+        format_menu = tk.Menu(settings_menu, tearoff=False)
+        for ext, label in RECORD_FORMATS:
+            format_menu.add_radiobutton(
+                label=f"{label} ({ext})", value=ext, variable=self.record_format_var
+            )
+        settings_menu.add_cascade(label="録音フォーマット", menu=format_menu)
+        menubar.add_cascade(label="設定", menu=settings_menu)
 
         help_menu = tk.Menu(menubar, tearoff=False)
         help_menu.add_command(label="バージョン情報", command=self._show_about)
@@ -411,11 +429,17 @@ class WhisperGui:
             return
 
         duration = len(data) / SAMPLE_RATE
-        default_name = datetime.now().strftime("recording_%Y%m%d_%H%M%S.wav")
+        ext = self.record_format_var.get()
+        default_name = datetime.now().strftime(f"recording_%Y%m%d_%H%M%S{ext}")
+        # 設定中のフォーマットを先頭にしてダイアログに渡す
+        filetypes = sorted(
+            ((f"{label} ({e})", f"*{e}") for e, label in RECORD_FORMATS),
+            key=lambda t: not t[1].endswith(ext),
+        )
         path_str = filedialog.asksaveasfilename(
             title="録音の保存先",
-            defaultextension=".wav",
-            filetypes=[("WAV", "*.wav"), ("All files", "*.*")],
+            defaultextension=ext,
+            filetypes=filetypes,
             initialfile=default_name,
         )
         if not path_str:
