@@ -15,7 +15,7 @@ from .model_size import ModelSize
 from .recorder import SAMPLE_RATE, Recorder, RecorderError
 from .runner import SUPPORTED_EXTENSIONS, transcribe_file
 
-APP_TITLE = "Whisper - Audio Transcription"
+APP_TITLE = "Whisper - Audio Transcription Tool For Obsidian"
 APP_VERSION = "0.1.0"
 
 # カラーパレット (目に優しい緑系ライトテーマ + ダークなログ領域)
