@@ -1,0 +1,92 @@
+import threading
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+
+# Whisper の入力に最適な 16kHz モノラルで録音する
+SAMPLE_RATE = 16000
+CHANNELS = 1
+
+
+class RecorderError(RuntimeError):
+    """録音デバイスの初期化・操作に失敗したことを表す。"""
+
+
+class Recorder:
+    """マイク入力を録音するレコーダー。
+
+    start() でストリームを開始し、コールバックでフレームを蓄積、
+    stop() で音声データ (float32, モノラル) を返す。スレッドセーフ。
+    """
+
+    def __init__(self) -> None:
+        self._frames: list[np.ndarray] = []
+        self._stream: sd.InputStream | None = None
+        self._lock = threading.Lock()
+        self._level: float = 0.0
+
+    @property
+    def is_recording(self) -> bool:
+        return self._stream is not None
+
+    @property
+    def level(self) -> float:
+        """直近の入力レベル (RMS, 0.0-1.0) を返す。"""
+        with self._lock:
+            return self._level
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """録音済みの秒数を返す。"""
+        with self._lock:
+            total_frames = sum(len(f) for f in self._frames)
+        return total_frames / SAMPLE_RATE
+
+    def start(self) -> None:
+        """録音を開始する。マイクが使えない場合は RecorderError を送出する。"""
+        if self._stream is not None:
+            return
+        self._frames = []
+        try:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="float32",
+                callback=self._on_audio,
+            )
+            self._stream.start()
+        except Exception as exc:
+            self._stream = None
+            raise RecorderError(f"録音を開始できませんでした: {exc}") from exc
+
+    def _on_audio(self, indata: np.ndarray, frames: int, time: Any, status: Any) -> None:
+        rms = float(np.sqrt(np.mean(np.square(indata))))
+        with self._lock:
+            self._frames.append(indata.copy())
+            self._level = rms
+
+    def stop(self) -> np.ndarray:
+        """録音を停止し、音声データを返す。"""
+        if self._stream is None:
+            return np.empty((0, CHANNELS), dtype=np.float32)
+        try:
+            self._stream.stop()
+            self._stream.close()
+        finally:
+            self._stream = None
+        with self._lock:
+            self._level = 0.0
+            if not self._frames:
+                return np.empty((0, CHANNELS), dtype=np.float32)
+            data = np.concatenate(self._frames)
+            self._frames = []
+        return data
+
+    @staticmethod
+    def save(path: Path, data: np.ndarray) -> Path:
+        """音声データを WAV として保存する。"""
+        sf.write(str(path), data, SAMPLE_RATE)
+        return path
