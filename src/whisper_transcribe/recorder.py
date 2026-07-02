@@ -52,12 +52,14 @@ class Recorder:
         """録音済みの秒数を返す。"""
         with self._lock:
             total_frames = sum(len(f) for f in self._frames)
+
         return total_frames / SAMPLE_RATE
 
     def start(self) -> None:
         """録音を開始する。マイクが使えない場合は RecorderError を送出する。"""
         if self._stream is not None:
             return
+
         self._frames = []
         try:
             self._stream = sd.InputStream(
@@ -81,17 +83,20 @@ class Recorder:
         """録音を停止し、音声データを返す。"""
         if self._stream is None:
             return np.empty((0, CHANNELS), dtype=np.float32)
+
         try:
             self._stream.stop()
             self._stream.close()
         finally:
             self._stream = None
+
         with self._lock:
             self._level = 0.0
             if not self._frames:
                 return np.empty((0, CHANNELS), dtype=np.float32)
             data = np.concatenate(self._frames)
             self._frames = []
+
         return data
 
     @staticmethod
@@ -101,5 +106,6 @@ class Recorder:
         if fmt is None:
             supported = ", ".join(sorted(SAVE_FORMATS))
             raise ValueError(f"未対応の保存形式です: '{path.suffix}' (対応: {supported})")
+
         sf.write(str(path), data, SAMPLE_RATE, format=fmt[0], subtype=fmt[1])
         return path
