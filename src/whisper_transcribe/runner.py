@@ -1,18 +1,16 @@
+import logging
 import os
 import sys
-import logging
-from logging import getLogger, basicConfig
-from pathlib import Path
 from datetime import datetime
-from typing import Annotated, Optional, Callable
+from logging import basicConfig, getLogger
+from pathlib import Path
+from typing import Annotated, Callable
 from zoneinfo import ZoneInfo
-
-from faster_whisper.transcribe import Segment
 
 try:
     from .model_size import ModelSize
 except ImportError:  # 直接スクリプト実行時のフォールバック
-    from model_size import ModelSize
+    from model_size import ModelSize  # type: ignore[no-redef,import-not-found]
 
 
 def setup_cuda_dll_path() -> None:
@@ -38,6 +36,7 @@ setup_cuda_dll_path()
 
 import typer
 from faster_whisper import WhisperModel
+from faster_whisper.transcribe import Segment
 
 logger = getLogger(__name__)
 basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -52,7 +51,7 @@ INPUT_FILE_ARG = Annotated[
     str, typer.Option("--input", "-i", help="Path to the audio file to transcribe")
 ]
 OUTPUT_FILE_ARG = Annotated[
-    Optional[str],
+    str | None,
     typer.Option("--output", "-o",
                  help="Path to save the Markdown output (default: same name as input, .md extension)"),
 ]
@@ -79,12 +78,16 @@ ProgressCallback = Callable[[float, float], None]
 LogCallback = Callable[[str], None]
 
 
-def model_name(model_size) -> str:
+def model_name(model_size: ModelSize | str) -> str:
     """ModelSize / str のどちらでも Whisper が受け取れる文字列に正規化する。"""
     return model_size.value if isinstance(model_size, ModelSize) else str(model_size)
 
 
-def load_model(model_size, device: str = "auto", compute_type: str = "auto") -> WhisperModel:
+def load_model(
+        model_size: ModelSize | str,
+        device: str = "auto",
+        compute_type: str = "auto",
+) -> WhisperModel:
     """Whisper モデルを読み込む。
 
     device / compute_type は既定で "auto"。CUDA が利用可能なら GPU + float16、
@@ -96,18 +99,19 @@ def load_model(model_size, device: str = "auto", compute_type: str = "auto") -> 
 def transcribe_file(
         input_path: Path,
         output_path: Path,
-        model_size=ModelSize.large_v3,
+        model_size: ModelSize | str = ModelSize.large_v3,
         language: str = "ja",
         timestamps: bool = False,
-        progress: Optional[ProgressCallback] = None,
-        log: Optional[LogCallback] = None,
-        model: Optional[WhisperModel] = None,
+        progress: ProgressCallback | None = None,
+        log: LogCallback | None = None,
+        model: WhisperModel | None = None,
         device: str = "auto",
         compute_type: str = "auto",
 ) -> Path:
     """音声ファイルを文字起こしし、Obsidian向けMarkdownとして保存する中核処理。
 
     CLI と GUI の双方から呼び出す。progress / log は任意のコールバック。
+    入力・出力が不正な場合は FileNotFoundError / ValueError を送出する。
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -174,8 +178,8 @@ def transcribe(
         model_size: MODEL_SIZE_ARG = ModelSize.large_v3,
         language: LANGUAGE_ARG = "ja",
         timestamps: TIMESTAMP_ARG = False,
-        is_debug: DEBUG_ARG = False
-):
+        is_debug: DEBUG_ARG = False,
+) -> None:
     """Transcribe an audio file and save as an Obsidian-friendly Markdown note."""
     if is_debug:
         logger.setLevel(logging.DEBUG)
@@ -183,34 +187,33 @@ def transcribe(
     input_path = Path(input_file)
     output_path = Path(output_file) if output_file else input_path.with_suffix(".md")
 
-    transcribe_file(
-        input_path,
-        output_path,
-        model_size=model_size,
-        language=language,
-        timestamps=timestamps,
-        log=typer.echo,
-    )
+    try:
+        transcribe_file(
+            input_path,
+            output_path,
+            model_size=model_size,
+            language=language,
+            timestamps=timestamps,
+            log=typer.echo,
+        )
+    except (OSError, ValueError) as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def validate_input_file(input_path: Path) -> None:
-    """入力ファイルの存在・形式を検証し、不正なら即座にエラー終了する。"""
+    """入力ファイルの存在・形式を検証し、不正なら例外を送出する。"""
     if not input_path.exists():
-        typer.secho(f"Error: Input file not found: {input_path}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        raise FileNotFoundError(f"Input file not found: {input_path}")
 
     if not input_path.is_file():
-        typer.secho(f"Error: Input path is not a file: {input_path}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        raise ValueError(f"Input path is not a file: {input_path}")
 
     if input_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-        typer.secho(
-            f"Error: Unsupported file extension '{input_path.suffix}'. "
-            f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
-            fg=typer.colors.RED,
-            err=True,
+        raise ValueError(
+            f"Unsupported file extension '{input_path.suffix}'. "
+            f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
         )
-        raise typer.Exit(code=1)
 
 
 def validate_output_path(output_path: Path) -> None:
@@ -218,12 +221,10 @@ def validate_output_path(output_path: Path) -> None:
     parent = output_path.parent
 
     if not parent.exists():
-        typer.secho(f"Error: Output directory does not exist: {parent}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        raise FileNotFoundError(f"Output directory does not exist: {parent}")
 
     if output_path.exists() and not os.access(output_path, os.W_OK):
-        typer.secho(f"Error: Output file is not writable: {output_path}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        raise ValueError(f"Output file is not writable: {output_path}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-"""Windows用exeをビルドするエントリポイント (`uv run wisper-build`)。
+"""Windows用exeをビルドするエントリポイント (`uv run whisper-transcribe-build`)。
 
-wisper.spec は相対パス (launcher_gui.py, src/...) を使っているため、
+whisper.spec は相対パス (launcher_gui.py, src/...) を使っているため、
 呼び出し元のカレントディレクトリに依存しないようリポジトリルートへ移動してから実行する。
 """
 import os
@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def main() -> None:
     os.chdir(PROJECT_ROOT)
-    pyinstaller_run(["wisper.spec", "--noconfirm"])
+    pyinstaller_run(["whisper.spec", "--noconfirm"])
 
 
 if __name__ == "__main__":

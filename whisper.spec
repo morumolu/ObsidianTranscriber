@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec: Wisper GUI (onedir, windowed, CUDA非同梱/CPU動作)。
+"""PyInstaller spec: Whisper GUI (onedir, windowed, CUDA非同梱/CPU動作)。
 
 ビルド:
-    uv run pyinstaller wisper.spec --noconfirm
+    uv run whisper-transcribe-build  (または uv run pyinstaller whisper.spec --noconfirm)
 生成物:
-    dist/Wisper/Wisper.exe  (フォルダごと配布)
+    dist/Whisper/Whisper.exe  (フォルダごと配布)
 """
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
@@ -19,8 +19,8 @@ for mod in ("tkinterdnd2",):
     binaries += b
     hiddenimports += h
 
-# faster-whisper / ctranslate2 / PyAV / onnxruntime のデータ・ネイティブ依存
-for mod in ("faster_whisper", "av", "onnxruntime"):
+# faster-whisper / PyAV / onnxruntime / 録音 (PortAudio, libsndfile) のデータ・ネイティブ依存
+for mod in ("faster_whisper", "av", "onnxruntime", "sounddevice", "soundfile"):
     d, b, h = collect_all(mod)
     datas += d
     binaries += b
@@ -60,7 +60,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Wisper",
+    name="Whisper",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -77,5 +77,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="Wisper",
+    name="Whisper",
 )

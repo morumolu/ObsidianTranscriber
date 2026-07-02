@@ -9,15 +9,15 @@ choco install ffmpeg
 ## 実行
 
 ```pwsh
-uv run wisper -i input.wav      # CLI
-uv run wisper-gui               # GUI
+uv run whisper-transcribe -i input.wav      # CLI
+uv run whisper-transcribe-gui               # GUI
 ```
 
 ## Windows exe ビルド
 
 ```pwsh
-uv run wisper-build
+uv run whisper-transcribe-build
 ```
 
-生成物: `dist/Wisper/Wisper.exe`（フォルダごと配布、onedir形式）。
+生成物: `dist/Whisper/Whisper.exe`（フォルダごと配布、onedir形式）。
 CUDA関連DLLは同梱せず、CPUで動作します。
