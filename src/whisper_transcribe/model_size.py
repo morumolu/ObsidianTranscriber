@@ -11,3 +11,4 @@ class ModelSize(str, Enum):
     large_v3 = "large-v3"
     large_v3_turbo = "large-v3-turbo"
     distil_large_v3 = "distil-large-v3"
+    distil_large_v3_5 = "distil-large-v3.5"
