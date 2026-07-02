@@ -5,10 +5,7 @@ from faster_whisper.utils import _MODELS as _REPO_IDS
 from huggingface_hub import scan_cache_dir
 from huggingface_hub.errors import CacheNotFound
 
-try:
-    from .model_size import ModelSize
-except ImportError:  # 直接スクリプト実行時のフォールバック
-    from model_size import ModelSize  # type: ignore[no-redef,import-not-found]
+from .model_size import ModelSize
 
 # Whisper が扱う ModelSize に対応するリポジトリのみを管理対象にする
 # (同じ HuggingFace キャッシュを共有する他アプリのモデルには触れない)

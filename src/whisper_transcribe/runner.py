@@ -7,10 +7,7 @@ from pathlib import Path
 from typing import Annotated, Callable
 from zoneinfo import ZoneInfo
 
-try:
-    from .model_size import ModelSize
-except ImportError:  # 直接スクリプト実行時のフォールバック
-    from model_size import ModelSize  # type: ignore[no-redef,import-not-found]
+from .model_size import ModelSize
 
 
 def setup_cuda_dll_path() -> None:

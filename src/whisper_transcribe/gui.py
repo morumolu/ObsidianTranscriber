@@ -10,16 +10,10 @@ from typing import Any, Callable, cast
 
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
-try:
-    from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
-    from .model_size import ModelSize
-    from .recorder import SAMPLE_RATE, Recorder, RecorderError
-    from .runner import SUPPORTED_EXTENSIONS, transcribe_file
-except ImportError:  # 直接スクリプト実行時のフォールバック
-    from model_cache import CachedModel, delete_cached_model, format_size, list_cached_models  # type: ignore[no-redef,import-not-found]
-    from model_size import ModelSize  # type: ignore[no-redef,import-not-found]
-    from recorder import SAMPLE_RATE, Recorder, RecorderError  # type: ignore[no-redef,import-not-found]
-    from runner import SUPPORTED_EXTENSIONS, transcribe_file  # type: ignore[no-redef,import-not-found]
+from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
+from .model_size import ModelSize
+from .recorder import SAMPLE_RATE, Recorder, RecorderError
+from .runner import SUPPORTED_EXTENSIONS, transcribe_file
 
 APP_TITLE = "Whisper - Audio Transcription"
 APP_VERSION = "0.1.0"
