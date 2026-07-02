@@ -9,9 +9,11 @@ from tkinter import ttk, filedialog, messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 try:
+    from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
     from .model_size import ModelSize
     from .runner import SUPPORTED_EXTENSIONS, transcribe_file
 except ImportError:  # 直接スクリプト実行時のフォールバック
+    from model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
     from model_size import ModelSize
     from runner import SUPPORTED_EXTENSIONS, transcribe_file
 
@@ -22,15 +24,18 @@ class WisperGui:
     def __init__(self, root: TkinterDnD.Tk) -> None:
         self.root = root
         self.root.title("Wisper - Audio Transcription")
-        self.root.geometry("720x620")
-        self.root.minsize(560, 480)
+        self.root.geometry("720x760")
+        self.root.minsize(560, 560)
 
         self.input_path: Path | None = None
         self.msg_queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
         self.worker: threading.Thread | None = None
+        self.cache_worker: threading.Thread | None = None
+        self.cached_models_by_item: dict[str, CachedModel] = {}
 
         self._build_widgets()
         self.root.after(100, self._poll_queue)
+        self._refresh_cache_list()
 
     # ------------------------------------------------------------------ UI
     def _build_widgets(self) -> None:
@@ -91,6 +96,33 @@ class WisperGui:
 
         self.timestamps_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(opt_frame, text="タイムスタンプ", variable=self.timestamps_var).pack(side="left")
+
+        # モデルキャッシュ管理
+        cache_frame = ttk.LabelFrame(self.root, text="モデルキャッシュ")
+        cache_frame.pack(fill="x", padx=10, pady=(4, 4))
+
+        tree_frame = ttk.Frame(cache_frame)
+        tree_frame.pack(fill="x", padx=6, pady=(4, 2))
+        self.cache_tree = ttk.Treeview(
+            tree_frame, columns=("size",), show="tree headings", height=4, selectmode="extended"
+        )
+        self.cache_tree.heading("#0", text="モデル")
+        self.cache_tree.heading("size", text="サイズ")
+        self.cache_tree.column("#0", width=220, anchor="w")
+        self.cache_tree.column("size", width=100, anchor="e")
+        cache_scroll = ttk.Scrollbar(tree_frame, command=self.cache_tree.yview)
+        self.cache_tree.configure(yscrollcommand=cache_scroll.set)
+        self.cache_tree.pack(side="left", fill="x", expand=True)
+        cache_scroll.pack(side="right", fill="y")
+
+        cache_btn_frame = ttk.Frame(cache_frame)
+        cache_btn_frame.pack(fill="x", padx=6, pady=(0, 6))
+        self.cache_total_var = tk.StringVar(value="合計: -")
+        ttk.Label(cache_btn_frame, textvariable=self.cache_total_var, foreground="#666666").pack(side="left")
+        ttk.Button(cache_btn_frame, text="更新", command=self._refresh_cache_list).pack(side="right", padx=(4, 0))
+        ttk.Button(
+            cache_btn_frame, text="選択したモデルを削除", command=self._delete_selected_cache
+        ).pack(side="right")
 
         # 実行ボタン
         self.run_button = ttk.Button(self.root, text="文字起こし開始", command=self._start)
@@ -209,14 +241,62 @@ class WisperGui:
                     self.progress.configure(value=100)
                     self.status_var.set(f"完了: {payload}")
                     self.run_button.configure(state="normal")
+                    self._refresh_cache_list()
                     messagebox.showinfo("完了", f"保存しました:\n{payload}")
                 elif kind == "error":
                     self.status_var.set(f"エラー: {payload}")
                     self.run_button.configure(state="normal")
                     messagebox.showerror("エラー", str(payload))
+                elif kind == "cache_refresh":
+                    self._refresh_cache_list()
         except queue.Empty:
             pass
         self.root.after(100, self._poll_queue)
+
+    # ---------------------------------------------------------- model cache
+    def _refresh_cache_list(self) -> None:
+        for item in self.cache_tree.get_children():
+            self.cache_tree.delete(item)
+        self.cached_models_by_item.clear()
+
+        try:
+            cached = list_cached_models()
+        except Exception as exc:  # noqa: BLE001 - 一覧表示できなくてもアプリは継続
+            self._append_log(f"モデルキャッシュの取得に失敗しました: {exc}")
+            cached = []
+
+        total_bytes = 0
+        for c in cached:
+            item_id = self.cache_tree.insert("", "end", text=c.model_size, values=(c.size_str,))
+            self.cached_models_by_item[item_id] = c
+            total_bytes += c.size_bytes
+
+        self.cache_total_var.set(f"合計: {format_size(total_bytes)} ({len(cached)} 件)")
+
+    def _delete_selected_cache(self) -> None:
+        if self.cache_worker and self.cache_worker.is_alive():
+            return
+
+        selected = [self.cached_models_by_item[i] for i in self.cache_tree.selection() if i in self.cached_models_by_item]
+        if not selected:
+            messagebox.showinfo("未選択", "削除するモデルを選択してください。")
+            return
+
+        names = "\n".join(f"- {c.model_size} ({c.size_str})" for c in selected)
+        if not messagebox.askyesno("キャッシュ削除の確認", f"以下のモデルキャッシュを削除します。よろしいですか？\n\n{names}"):
+            return
+
+        self.cache_worker = threading.Thread(target=self._delete_cache_worker, args=(selected,), daemon=True)
+        self.cache_worker.start()
+
+    def _delete_cache_worker(self, cached_models: list[CachedModel]) -> None:
+        for c in cached_models:
+            try:
+                delete_cached_model(c)
+                self.msg_queue.put(("log", f"モデルキャッシュを削除しました: {c.model_size} ({c.size_str})"))
+            except Exception as exc:  # noqa: BLE001 - GUIに表示するため全捕捉
+                self.msg_queue.put(("log", f"削除に失敗しました: {c.model_size}: {exc}"))
+        self.msg_queue.put(("cache_refresh", None))
 
     # ------------------------------------------------------------------ log
     def _append_log(self, msg: str) -> None:
