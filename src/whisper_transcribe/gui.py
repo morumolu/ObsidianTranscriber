@@ -567,10 +567,11 @@ class WhisperGui:
                     self.progress.configure(value=pct)
                     self.status_var.set(f"処理中... {cur:.0f}s / {total:.0f}s ({pct:.0f}%)")
                 elif kind == "done":
+                    message: str = cast(str, payload)
                     self.progress.configure(value=100)
-                    self.status_var.set(f"完了: {payload}")
+                    self.status_var.set(f"完了: {message}")
                     self._set_running(False)
-                    messagebox.showinfo("完了", f"保存しました:\n{payload}")
+                    messagebox.showinfo("完了", f"保存しました:\n{message}")
                 elif kind == "test_done":
                     self.progress.configure(value=100)
                     self.status_var.set("テスト完了 (結果は処理ログを確認、ファイルは未保存)")
@@ -715,8 +716,9 @@ class CacheDialog(tk.Toplevel):
         try:
             while True:
                 kind, payload = self._queue.get_nowait()
+                message: str = cast(str, payload)
                 if kind == "log":
-                    self._log(str(payload))
+                    self._log(message)
                 elif kind == "refresh":
                     self._refresh()
         except queue.Empty:
