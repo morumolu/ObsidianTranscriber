@@ -1,4 +1,4 @@
-# Wisper
+# Whisper Transcription Tool
 
 Administrator mode
 
