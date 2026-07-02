@@ -59,5 +59,7 @@ def format_size(num_bytes: int) -> str:
     for unit in ("B", "K", "M", "G", "T"):
         if size < 1024 or unit == "T":
             return f"{size:.1f}{unit}"
+
         size /= 1024
+
     return f"{size:.1f}T"

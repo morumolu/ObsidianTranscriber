@@ -94,6 +94,7 @@ class Recorder:
             self._level = 0.0
             if not self._frames:
                 return np.empty((0, CHANNELS), dtype=np.float32)
+
             data = np.concatenate(self._frames)
             self._frames = []
 
