@@ -1,14 +1,18 @@
 import os
 import sys
+import logging
 from logging import getLogger, basicConfig
 from pathlib import Path
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Callable
 from zoneinfo import ZoneInfo
 
 from faster_whisper.transcribe import Segment
 
-from model_size import ModelSize
+try:
+    from .model_size import ModelSize
+except ImportError:  # 直接スクリプト実行時のフォールバック
+    from model_size import ModelSize
 
 
 def setup_cuda_dll_path() -> None:
@@ -36,7 +40,7 @@ import typer
 from faster_whisper import WhisperModel
 
 logger = getLogger(__name__)
-basicConfig(format="%(asctime)s [%(levelname)s] %(message)s")
+basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 app = typer.Typer()
 
@@ -67,6 +71,101 @@ DEBUG_ARG = Annotated[
 
 TZ: str = "Asia/Tokyo"
 
+SEGMENT_SEPARATOR: str = "\n\n"
+
+# 進捗コールバック: (現在の処理済み秒, 総秒数)
+ProgressCallback = Callable[[float, float], None]
+# ログコールバック: 1行のメッセージ
+LogCallback = Callable[[str], None]
+
+
+def model_name(model_size) -> str:
+    """ModelSize / str のどちらでも Whisper が受け取れる文字列に正規化する。"""
+    return model_size.value if isinstance(model_size, ModelSize) else str(model_size)
+
+
+def load_model(model_size, device: str = "auto", compute_type: str = "auto") -> WhisperModel:
+    """Whisper モデルを読み込む。
+
+    device / compute_type は既定で "auto"。CUDA が利用可能なら GPU + float16、
+    無ければ CPU + int8 が自動選択される（ctranslate2 の auto 解決）。
+    """
+    return WhisperModel(model_name(model_size), device=device, compute_type=compute_type)
+
+
+def transcribe_file(
+        input_path: Path,
+        output_path: Path,
+        model_size=ModelSize.large_v3,
+        language: str = "ja",
+        timestamps: bool = False,
+        progress: Optional[ProgressCallback] = None,
+        log: Optional[LogCallback] = None,
+        model: Optional[WhisperModel] = None,
+        device: str = "auto",
+        compute_type: str = "auto",
+) -> Path:
+    """音声ファイルを文字起こしし、Obsidian向けMarkdownとして保存する中核処理。
+
+    CLI と GUI の双方から呼び出す。progress / log は任意のコールバック。
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    validate_input_file(input_path)
+    validate_output_path(output_path)
+
+    def emit(msg: str) -> None:
+        logger.info(msg)
+        if log:
+            log(msg)
+
+    emit(f"Loading model: {model_name(model_size)} (device={device}, compute={compute_type})")
+    if model is None:
+        model = load_model(model_size, device=device, compute_type=compute_type)
+
+    emit(f"Transcribing: {input_path.name}")
+    segments, info = model.transcribe(str(input_path), language=language)
+
+    total = float(info.duration or 0.0)
+    emit(f"Duration: {total:.1f}s / detected language: {info.language}")
+
+    collected: list[Segment] = []
+    for segment in segments:
+        text = segment.text.strip()
+        emit(f"[{segment.start:.2f}s - {segment.end:.2f}s] {text}")
+        collected.append(segment)
+        if progress and total:
+            progress(min(segment.end, total), total)
+    if progress and total:
+        progress(total, total)
+
+    now = datetime.now(tz=ZoneInfo(TZ))
+    frontmatter = (
+        "---\n"
+        f"source: audio-transcription\n"
+        f"source_file: {input_path.name}\n"
+        f"model: {model_name(model_size)}\n"
+        f"language: {language}\n"
+        f"created: {now.strftime('%Y-%m-%d %H:%M')}\n"
+        "verified: false\n"
+        "---\n\n"
+    )
+
+    logger.debug("%s", frontmatter)
+
+    full_text = SEGMENT_SEPARATOR.join(seg.text.strip() for seg in collected)
+
+    body = f"# {input_path.stem}\n\n{full_text}\n"
+
+    if timestamps:
+        body += "\n## Segments\n\n"
+        for seg in collected:
+            body += f"- `{seg.start:.2f}s - {seg.end:.2f}s` {seg.text.strip()}\n"
+
+    output_path.write_text(frontmatter + body, encoding="utf-8")
+    emit(f"Saved to: {output_path}")
+    return output_path
+
 
 @app.command()
 def transcribe(
@@ -78,49 +177,20 @@ def transcribe(
         is_debug: DEBUG_ARG = False
 ):
     """Transcribe an audio file and save as an Obsidian-friendly Markdown note."""
-    logger.setLevel(is_debug)
+    if is_debug:
+        logger.setLevel(logging.DEBUG)
 
     input_path = Path(input_file)
-    validate_input_file(input_path)
-
     output_path = Path(output_file) if output_file else input_path.with_suffix(".md")
-    validate_output_path(output_path)
 
-    typer.echo(f"Loading model: {model_size}")
-    model = WhisperModel(model_size, device="cuda", compute_type="float16")
-
-    typer.echo(f"Transcribing: {input_file}")
-    segments, info = model.transcribe(input_file, language=language)
-
-    now = datetime.now(tz=ZoneInfo(TZ))
-    frontmatter = (
-        "---\n"
-        f"source: audio-transcription\n"
-        f"source_file: {input_path.name}\n"
-        f"model: {model_size}\n"
-        f"language: {language}\n"
-        f"created: {now.strftime('%Y-%m-%d %H:%M')}\n"
-        "verified: false\n"
-        "---\n\n"
+    transcribe_file(
+        input_path,
+        output_path,
+        model_size=model_size,
+        language=language,
+        timestamps=timestamps,
+        log=typer.echo,
     )
-
-    logger.debug("%s", frontmatter)
-
-    segments = [tee(segment) for segment in segments]
-
-    segment_texts = (seg.text.strip() for seg in segments)
-
-    full_text = " ".join(segment_texts)
-
-    body = f"# {input_path.stem}\n\n{full_text}\n"
-
-    if timestamps:
-        body += "\n## Segments\n\n"
-        for seg in segments:
-            body += f"- `{seg.start:.2f}s - {seg.end:.2f}s` {seg.text.strip()}\n"
-
-    output_path.write_text(frontmatter + body, encoding="utf-8")
-    typer.echo(f"Saved to: {output_path}")
 
 
 def validate_input_file(input_path: Path) -> None:
@@ -154,11 +224,6 @@ def validate_output_path(output_path: Path) -> None:
     if output_path.exists() and not os.access(output_path, os.W_OK):
         typer.secho(f"Error: Output file is not writable: {output_path}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
-
-
-def tee(segment: Segment):
-    logger.debug("Segment: [%s - %s] %s", segment.start, segment.end, segment.text.strip())
-    return segment
 
 
 if __name__ == "__main__":
