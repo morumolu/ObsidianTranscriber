@@ -479,12 +479,15 @@ class WhisperGui:
     def _start(self, test: bool = False) -> None:
         if self.worker and self.worker.is_alive():
             return
+
         if self.recorder.is_recording:
             messagebox.showinfo("録音中", "録音を停止してから文字起こしを開始してください。")
             return
+
         if not self.input_path:
             messagebox.showinfo("入力なし", "音声ファイルを選択してください。")
             return
+
         output = self.output_var.get().strip()
         if not output:
             messagebox.showinfo("出力なし", "出力ファイル名を入力してください。")
@@ -509,6 +512,9 @@ class WhisperGui:
             ),
             daemon=True,
         )
+
+        assert self.worker is not None
+
         self.worker.start()
 
     def _cancel(self) -> None:
@@ -575,12 +581,14 @@ class WhisperGui:
                     self._set_running(False)
                     self._append_log("文字起こしを中断しました。")
                 elif kind == "error":
+                    error_message: str = cast(str, payload)
                     self.progress.configure(value=0)
-                    self.status_var.set(f"エラー: {payload}")
+                    self.status_var.set(f"エラー: {error_message}")
                     self._set_running(False)
-                    messagebox.showerror("エラー", str(payload))
+                    messagebox.showerror("エラー", error_message)
         except queue.Empty:
             pass
+
         self.root.after(100, self._poll_queue)
 
     # ---------------------------------------------------------- model cache
@@ -655,6 +663,7 @@ class CacheDialog(tk.Toplevel):
     def _refresh(self) -> None:
         for item in self.tree.get_children():
             self.tree.delete(item)
+
         self._items.clear()
 
         try:
@@ -682,9 +691,9 @@ class CacheDialog(tk.Toplevel):
 
         names = "\n".join(f"- {c.model_size} ({c.size_str})" for c in selected)
         if not messagebox.askyesno(
-            "キャッシュ削除の確認",
-            f"以下のモデルキャッシュを削除します。よろしいですか？\n\n{names}",
-            parent=self,
+                "キャッシュ削除の確認",
+                f"以下のモデルキャッシュを削除します。よろしいですか？\n\n{names}",
+                parent=self,
         ):
             return
 
