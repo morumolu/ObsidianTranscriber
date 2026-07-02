@@ -6,6 +6,8 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 
+from .i18n import tr
+
 # Whisper の入力に最適な 16kHz モノラルで録音する
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -73,7 +75,7 @@ class Recorder:
             self._stream.start()
         except Exception as exc:
             self._stream = None
-            raise RecorderError(f"録音を開始できませんでした: {exc}") from exc
+            raise RecorderError(tr("rec_start_failed", msg=exc)) from exc
 
     def _on_audio(self, indata: np.ndarray, frames: int, time: Any, status: Any) -> None:
         rms = float(np.sqrt(np.mean(np.square(indata))))
@@ -108,7 +110,7 @@ class Recorder:
         fmt = SAVE_FORMATS.get(path.suffix.lower())
         if fmt is None:
             supported = ", ".join(sorted(SAVE_FORMATS))
-            raise ValueError(f"未対応の保存形式です: '{path.suffix}' (対応: {supported})")
+            raise ValueError(tr("rec_unsupported_format", ext=path.suffix, supported=supported))
 
         sf.write(str(path), data, SAMPLE_RATE, format=fmt[0], subtype=fmt[1])
         return path

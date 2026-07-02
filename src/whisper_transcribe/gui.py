@@ -10,6 +10,7 @@ from typing import Any, Callable, cast
 
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
+from .i18n import LANGUAGES, get_language, init_language, save_language, tr
 from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
 from .model_size import ModelSize
 from .recorder import SAMPLE_RATE, Recorder, RecorderError
@@ -47,12 +48,13 @@ Message = tuple[str, object]
 TEST_DURATION = 10.0
 
 # 録音の保存フォーマット (拡張子, 表示名)。メニューと保存ダイアログで共用
-RECORD_FORMATS: list[tuple[str, str]] = [
-    (".mp3", "MP3"),
-    (".ogg", "OGG Vorbis"),
-    (".flac", "FLAC (可逆圧縮)"),
-    (".wav", "WAV (無圧縮)"),
-]
+def record_formats() -> list[tuple[str, str]]:
+    return [
+        (".mp3", "MP3"),
+        (".ogg", "OGG Vorbis"),
+        (".flac", tr("fmt_flac")),
+        (".wav", tr("fmt_wav")),
+    ]
 
 
 class WhisperGui:
@@ -71,6 +73,7 @@ class WhisperGui:
         self.recorder = Recorder()
         self._record_timer: str | None = None
         self.record_format_var = tk.StringVar(value=".mp3")
+        self.ui_language_var = tk.StringVar(value=get_language())
         self.cancel_event: threading.Event | None = None
 
         self._setup_style()
@@ -173,41 +176,52 @@ class WhisperGui:
 
         file_menu = tk.Menu(menubar, tearoff=False)
         file_menu.add_command(
-            label="音声ファイルを開く...", accelerator="Ctrl+O", command=self._browse_input
+            label=tr("menu_open_audio"), accelerator="Ctrl+O", command=self._browse_input
         )
         file_menu.add_command(
-            label="出力先を指定...", accelerator="Ctrl+S", command=self._browse_output
+            label=tr("menu_set_output"), accelerator="Ctrl+S", command=self._browse_output
         )
         file_menu.add_separator()
-        file_menu.add_command(label="終了", accelerator="Ctrl+Q", command=self.root.destroy)
-        menubar.add_cascade(label="ファイル", menu=file_menu)
+        file_menu.add_command(label=tr("menu_quit"), accelerator="Ctrl+Q", command=self.root.destroy)
+        menubar.add_cascade(label=tr("menu_file"), menu=file_menu)
 
         tool_menu = tk.Menu(menubar, tearoff=False)
-        tool_menu.add_command(label="文字起こし開始", accelerator="F5", command=self._start)
+        tool_menu.add_command(label=tr("menu_start"), accelerator="F5", command=self._start)
         tool_menu.add_command(
-            label=f"テスト書き起こし (先頭{TEST_DURATION:.0f}秒)",
+            label=tr("menu_test", sec=f"{TEST_DURATION:.0f}"),
             command=lambda: self._start(test=True),
         )
-        tool_menu.add_command(label="文字起こしを中断", accelerator="Esc", command=self._cancel)
-        tool_menu.add_command(label="録音開始/停止", accelerator="Ctrl+R", command=self._toggle_record)
+        tool_menu.add_command(label=tr("menu_cancel"), accelerator="Esc", command=self._cancel)
+        tool_menu.add_command(
+            label=tr("menu_record_toggle"), accelerator="Ctrl+R", command=self._toggle_record
+        )
         tool_menu.add_separator()
-        tool_menu.add_command(label="モデルキャッシュ管理...", command=self._open_cache_dialog)
+        tool_menu.add_command(label=tr("menu_cache"), command=self._open_cache_dialog)
         tool_menu.add_separator()
-        tool_menu.add_command(label="ログをクリア", command=self._clear_log)
-        menubar.add_cascade(label="ツール", menu=tool_menu)
+        tool_menu.add_command(label=tr("menu_clear_log"), command=self._clear_log)
+        menubar.add_cascade(label=tr("menu_tools"), menu=tool_menu)
 
         settings_menu = tk.Menu(menubar, tearoff=False)
         format_menu = tk.Menu(settings_menu, tearoff=False)
-        for ext, label in RECORD_FORMATS:
+        for ext, label in record_formats():
             format_menu.add_radiobutton(
                 label=f"{label} ({ext})", value=ext, variable=self.record_format_var
             )
-        settings_menu.add_cascade(label="録音フォーマット", menu=format_menu)
-        menubar.add_cascade(label="設定", menu=settings_menu)
+        settings_menu.add_cascade(label=tr("menu_record_format"), menu=format_menu)
+        language_menu = tk.Menu(settings_menu, tearoff=False)
+        for code, name in LANGUAGES:
+            language_menu.add_radiobutton(
+                label=name,
+                value=code,
+                variable=self.ui_language_var,
+                command=self._change_language,
+            )
+        settings_menu.add_cascade(label=tr("menu_language"), menu=language_menu)
+        menubar.add_cascade(label=tr("menu_settings"), menu=settings_menu)
 
         help_menu = tk.Menu(menubar, tearoff=False)
-        help_menu.add_command(label="バージョン情報", command=self._show_about)
-        menubar.add_cascade(label="ヘルプ", menu=help_menu)
+        help_menu.add_command(label=tr("menu_about"), command=self._show_about)
+        menubar.add_cascade(label=tr("menu_help"), menu=help_menu)
 
         self.root.config(menu=menubar)
 
@@ -218,21 +232,19 @@ class WhisperGui:
         self.root.bind_all("<F5>", lambda _e: self._start())
         self.root.bind_all("<Escape>", lambda _e: self._cancel())
 
+    def _change_language(self) -> None:
+        save_language(self.ui_language_var.get())
+        messagebox.showinfo(tr("lang_restart_title"), tr("lang_restart_msg"))
+
     def _show_about(self) -> None:
-        messagebox.showinfo(
-            "バージョン情報",
-            f"Whisper {APP_VERSION}\n\n"
-            "faster-whisper によるローカル音声文字起こしツール。\n"
-            "結果は Obsidian 向け Markdown として保存されます。",
-        )
+        messagebox.showinfo(tr("about_title"), tr("about_text", version=APP_VERSION))
 
     # ------------------------------------------------------------------- UI
     def _build_widgets(self) -> None:
         # ドロップゾーン
         self.drop_zone = tk.Label(
             self.root,
-            text="🎵 ここに音声ファイルをドラッグ&ドロップ\n"
-                 f"{', '.join(sorted(SUPPORTED_EXTENSIONS))}",
+            text=tr("drop_zone", exts=", ".join(sorted(SUPPORTED_EXTENSIONS))),
             relief="flat",
             height=4,
             bg=DROP_BG,
@@ -252,8 +264,8 @@ class WhisperGui:
         # 入力ファイル表示
         in_frame = ttk.Frame(self.root)
         in_frame.pack(fill="x", padx=12, pady=4)
-        ttk.Label(in_frame, text="入力:", width=6).pack(side="left")
-        self.input_var = tk.StringVar(value="(未選択)")
+        ttk.Label(in_frame, text=tr("label_input"), width=8).pack(side="left")
+        self.input_var = tk.StringVar(value=tr("not_selected"))
         ttk.Label(in_frame, textvariable=self.input_var, foreground=ACCENT).pack(
             side="left", fill="x", expand=True, padx=6
         )
@@ -261,7 +273,7 @@ class WhisperGui:
         # 出力ファイル名 (編集可能)
         out_frame = ttk.Frame(self.root)
         out_frame.pack(fill="x", padx=12, pady=4)
-        ttk.Label(out_frame, text="出力:", width=6).pack(side="left")
+        ttk.Label(out_frame, text=tr("label_output"), width=8).pack(side="left")
         self.output_var = tk.StringVar()
         self.output_entry = ttk.Entry(out_frame, textvariable=self.output_var)
         self.output_entry.pack(side="left", fill="x", expand=True, padx=6)
@@ -270,7 +282,7 @@ class WhisperGui:
         opt_frame = ttk.Frame(self.root)
         opt_frame.pack(fill="x", padx=12, pady=4)
 
-        ttk.Label(opt_frame, text="モデル:").pack(side="left")
+        ttk.Label(opt_frame, text=tr("label_model")).pack(side="left")
         self.model_var = tk.StringVar(value=ModelSize.large_v3.value)
         model_box = ttk.Combobox(
             opt_frame,
@@ -281,18 +293,18 @@ class WhisperGui:
         )
         model_box.pack(side="left", padx=(4, 12))
 
-        ttk.Label(opt_frame, text="言語:").pack(side="left")
+        ttk.Label(opt_frame, text=tr("label_language")).pack(side="left")
         self.language_var = tk.StringVar(value="ja")
         ttk.Entry(opt_frame, textvariable=self.language_var, width=6).pack(side="left", padx=(4, 12))
 
         self.timestamps_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(opt_frame, text="タイムスタンプ", variable=self.timestamps_var).pack(side="left")
+        ttk.Checkbutton(opt_frame, text=tr("check_timestamps"), variable=self.timestamps_var).pack(side="left")
 
         # 実行ボタン + 録音ボタン + レベルメータ
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", padx=12, pady=8)
         self.record_button = ttk.Button(
-            action_frame, text="● 録音開始", command=self._toggle_record
+            action_frame, text=tr("btn_record_start"), command=self._toggle_record
         )
         self.record_button.pack(side="left", padx=(0, 8), ipady=4)
         self.level_meter = ttk.Progressbar(
@@ -304,28 +316,28 @@ class WhisperGui:
         )
         self.level_meter.pack(side="left", padx=(0, 8))
         self.run_button = ttk.Button(
-            action_frame, text="文字起こし開始", style="Accent.TButton", command=self._start
+            action_frame, text=tr("btn_start"), style="Accent.TButton", command=self._start
         )
         self.run_button.pack(side="left", fill="x", expand=True)
         self.test_button = ttk.Button(
             action_frame,
-            text=f"テスト ({TEST_DURATION:.0f}秒)",
+            text=tr("btn_test", sec=f"{TEST_DURATION:.0f}"),
             command=lambda: self._start(test=True),
         )
         self.test_button.pack(side="left", padx=(8, 0), ipady=4)
         self.cancel_button = ttk.Button(
-            action_frame, text="中断", state="disabled", command=self._cancel
+            action_frame, text=tr("btn_cancel"), state="disabled", command=self._cancel
         )
         self.cancel_button.pack(side="left", padx=(8, 0), ipady=4)
 
         # 進捗バー + ステータス
         self.progress = ttk.Progressbar(self.root, mode="determinate", maximum=100)
         self.progress.pack(fill="x", padx=12, pady=(0, 4))
-        self.status_var = tk.StringVar(value="待機中")
+        self.status_var = tk.StringVar(value=tr("status_idle"))
         ttk.Label(self.root, textvariable=self.status_var, style="Muted.TLabel").pack(anchor="w", padx=12)
 
         # 処理ログ
-        ttk.Label(self.root, text="処理ログ:").pack(anchor="w", padx=12, pady=(8, 0))
+        ttk.Label(self.root, text=tr("label_log")).pack(anchor="w", padx=12, pady=(8, 0))
         log_frame = ttk.Frame(self.root)
         log_frame.pack(fill="both", expand=True, padx=12, pady=(2, 12))
         self.log_text = tk.Text(
@@ -360,13 +372,13 @@ class WhisperGui:
             return
         self._set_input(Path(paths[0]))
         if len(paths) > 1:
-            self._append_log("複数ファイルがドロップされました。先頭のみ対象にします。")
+            self._append_log(tr("log_multi_drop"))
 
     def _browse_input(self) -> None:
         exts = " ".join(f"*{e}" for e in sorted(SUPPORTED_EXTENSIONS))
         path = filedialog.askopenfilename(
-            title="音声ファイルを選択",
-            filetypes=[("Audio files", exts), ("All files", "*.*")],
+            title=tr("dlg_select_audio"),
+            filetypes=[(tr("ft_audio"), exts), (tr("ft_all"), "*.*")],
         )
         if path:
             self._set_input(Path(path))
@@ -374,8 +386,12 @@ class WhisperGui:
     def _set_input(self, path: Path) -> None:
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             messagebox.showwarning(
-                "非対応の形式",
-                f"'{path.suffix}' は非対応です。\n対応形式: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
+                tr("dlg_unsupported_title"),
+                tr(
+                    "dlg_unsupported_msg",
+                    ext=path.suffix,
+                    supported=", ".join(sorted(SUPPORTED_EXTENSIONS)),
+                ),
             )
             return
         self.input_path = path
@@ -386,9 +402,9 @@ class WhisperGui:
     def _browse_output(self) -> None:
         initial = Path(self.output_var.get()) if self.output_var.get() else None
         path = filedialog.asksaveasfilename(
-            title="保存先を選択",
+            title=tr("dlg_select_output"),
             defaultextension=".md",
-            filetypes=[("Markdown", "*.md"), ("All files", "*.*")],
+            filetypes=[(tr("ft_markdown"), "*.md"), (tr("ft_all"), "*.*")],
             initialfile=initial.name if initial else "",
             initialdir=str(initial.parent) if initial else "",
         )
@@ -404,22 +420,22 @@ class WhisperGui:
 
     def _start_recording(self) -> None:
         if self.worker and self.worker.is_alive():
-            messagebox.showinfo("処理中", "文字起こし中は録音できません。")
+            messagebox.showinfo(tr("dlg_busy_title"), tr("dlg_busy_msg"))
             return
         try:
             self.recorder.start()
         except RecorderError as exc:
-            messagebox.showerror("録音エラー", str(exc))
+            messagebox.showerror(tr("dlg_record_error_title"), str(exc))
             return
-        self.record_button.configure(text="■ 録音停止", style="Record.TButton")
+        self.record_button.configure(text=tr("btn_record_stop"), style="Record.TButton")
         self.run_button.configure(state="disabled")
-        self._append_log("録音を開始しました。")
+        self._append_log(tr("log_record_start"))
         self._update_record_elapsed()
 
     def _update_record_elapsed(self) -> None:
         if not self.recorder.is_recording:
             return
-        self.status_var.set(f"録音中... {self.recorder.elapsed_seconds:.0f}s")
+        self.status_var.set(tr("status_recording", sec=f"{self.recorder.elapsed_seconds:.0f}"))
         # RMS を dB (-60〜0) に変換し 0〜100% で表示
         level = self.recorder.level
         db = 20.0 * math.log10(level) if level > 0 else -60.0
@@ -433,13 +449,13 @@ class WhisperGui:
             self._record_timer = None
 
         data = self.recorder.stop()
-        self.record_button.configure(text="● 録音開始", style="TButton")
+        self.record_button.configure(text=tr("btn_record_start"), style="TButton")
         self.run_button.configure(state="normal")
         self.level_meter.configure(value=0)
-        self.status_var.set("待機中")
+        self.status_var.set(tr("status_idle"))
 
         if len(data) == 0:
-            self._append_log("録音データがありません。")
+            self._append_log(tr("log_record_none"))
             return
 
         duration = len(data) / SAMPLE_RATE
@@ -447,25 +463,25 @@ class WhisperGui:
         default_name = datetime.now().strftime(f"recording_%Y%m%d_%H%M%S{ext}")
         # 設定中のフォーマットを先頭にしてダイアログに渡す
         filetypes = sorted(
-            ((f"{label} ({e})", f"*{e}") for e, label in RECORD_FORMATS),
+            ((f"{label} ({e})", f"*{e}") for e, label in record_formats()),
             key=lambda t: not t[1].endswith(ext),
         )
         path_str = filedialog.asksaveasfilename(
-            title="録音の保存先",
+            title=tr("dlg_record_save"),
             defaultextension=ext,
             filetypes=filetypes,
             initialfile=default_name,
         )
         if not path_str:
-            self._append_log("録音を破棄しました。")
+            self._append_log(tr("log_record_discard"))
             return
 
         try:
             path = Recorder.save(Path(path_str), data)
         except Exception as exc:  # noqa: BLE001 - GUIに表示するため全捕捉
-            messagebox.showerror("保存エラー", f"録音の保存に失敗しました:\n{exc}")
+            messagebox.showerror(tr("dlg_save_error_title"), tr("dlg_save_error_msg", msg=exc))
             return
-        self._append_log(f"録音を保存しました: {path} ({duration:.1f}s)")
+        self._append_log(tr("log_record_saved", path=path, sec=f"{duration:.1f}"))
         self._set_input(path)
 
     # --------------------------------------------------------------- running
@@ -481,21 +497,21 @@ class WhisperGui:
             return
 
         if self.recorder.is_recording:
-            messagebox.showinfo("録音中", "録音を停止してから文字起こしを開始してください。")
+            messagebox.showinfo(tr("dlg_recording_title"), tr("dlg_recording_msg"))
             return
 
         if not self.input_path:
-            messagebox.showinfo("入力なし", "音声ファイルを選択してください。")
+            messagebox.showinfo(tr("dlg_no_input_title"), tr("dlg_no_input_msg"))
             return
 
         output = self.output_var.get().strip()
         if not output:
-            messagebox.showinfo("出力なし", "出力ファイル名を入力してください。")
+            messagebox.showinfo(tr("dlg_no_output_title"), tr("dlg_no_output_msg"))
             return
 
         self._set_running(True)
         self.progress.configure(value=0)
-        self.status_var.set("テスト処理中..." if test else "処理中...")
+        self.status_var.set(tr("status_test_processing") if test else tr("status_processing"))
         self._clear_log()
 
         self.cancel_event = threading.Event()
@@ -522,7 +538,7 @@ class WhisperGui:
             return
         self.cancel_event.set()
         self.cancel_button.configure(state="disabled")
-        self.status_var.set("中断中...")
+        self.status_var.set(tr("status_cancelling"))
 
     def _worker(
             self,
@@ -565,28 +581,30 @@ class WhisperGui:
                     cur, total = cast("tuple[float, float]", payload)
                     pct = (cur / total * 100) if total else 0.0
                     self.progress.configure(value=pct)
-                    self.status_var.set(f"処理中... {cur:.0f}s / {total:.0f}s ({pct:.0f}%)")
+                    self.status_var.set(
+                        tr("status_progress", cur=f"{cur:.0f}", total=f"{total:.0f}", pct=f"{pct:.0f}")
+                    )
                 elif kind == "done":
                     message: str = cast(str, payload)
                     self.progress.configure(value=100)
-                    self.status_var.set(f"完了: {message}")
+                    self.status_var.set(tr("status_done", path=message))
                     self._set_running(False)
-                    messagebox.showinfo("完了", f"保存しました:\n{message}")
+                    messagebox.showinfo(tr("dlg_done_title"), tr("dlg_done_msg", path=message))
                 elif kind == "test_done":
                     self.progress.configure(value=100)
-                    self.status_var.set("テスト完了 (結果は処理ログを確認、ファイルは未保存)")
+                    self.status_var.set(tr("status_test_done"))
                     self._set_running(False)
                 elif kind == "cancelled":
                     self.progress.configure(value=0)
-                    self.status_var.set("中断しました")
+                    self.status_var.set(tr("status_cancelled"))
                     self._set_running(False)
-                    self._append_log("文字起こしを中断しました。")
+                    self._append_log(tr("log_cancelled"))
                 elif kind == "error":
                     error_message: str = cast(str, payload)
                     self.progress.configure(value=0)
-                    self.status_var.set(f"エラー: {error_message}")
+                    self.status_var.set(tr("status_error", msg=error_message))
                     self._set_running(False)
-                    messagebox.showerror("エラー", error_message)
+                    messagebox.showerror(tr("dlg_error_title"), error_message)
         except queue.Empty:
             pass
 
@@ -614,7 +632,7 @@ class CacheDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Tk, log: Callable[[str], None]) -> None:
         super().__init__(parent)
-        self.title("モデルキャッシュ管理")
+        self.title(tr("cache_title"))
         self.configure(bg=BG)
         self.resizable(False, False)
 
@@ -637,8 +655,8 @@ class CacheDialog(tk.Toplevel):
         self.tree = ttk.Treeview(
             tree_frame, columns=("size",), show="tree headings", height=8, selectmode="extended"
         )
-        self.tree.heading("#0", text="モデル")
-        self.tree.heading("size", text="サイズ")
+        self.tree.heading("#0", text=tr("cache_col_model"))
+        self.tree.heading("size", text=tr("cache_col_size"))
         self.tree.column("#0", width=240, anchor="w")
         self.tree.column("size", width=110, anchor="e")
         scroll = ttk.Scrollbar(tree_frame, command=self.tree.yview)
@@ -646,14 +664,14 @@ class CacheDialog(tk.Toplevel):
         self.tree.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
 
-        self.total_var = tk.StringVar(value="合計: -")
+        self.total_var = tk.StringVar(value=tr("cache_total_empty"))
         ttk.Label(self, textvariable=self.total_var, style="Muted.TLabel").pack(anchor="w", padx=12)
 
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill="x", padx=12, pady=(6, 12))
-        ttk.Button(btn_frame, text="閉じる", command=self.destroy).pack(side="right", padx=(6, 0))
-        ttk.Button(btn_frame, text="更新", command=self._refresh).pack(side="right", padx=(6, 0))
-        ttk.Button(btn_frame, text="選択したモデルを削除", command=self._delete_selected).pack(side="right")
+        ttk.Button(btn_frame, text=tr("btn_close"), command=self.destroy).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_frame, text=tr("btn_refresh"), command=self._refresh).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_frame, text=tr("btn_delete_selected"), command=self._delete_selected).pack(side="right")
 
     def _center_over(self, parent: tk.Tk) -> None:
         self.update_idletasks()
@@ -670,7 +688,7 @@ class CacheDialog(tk.Toplevel):
         try:
             cached = list_cached_models()
         except Exception as exc:  # noqa: BLE001 - 一覧表示できなくてもダイアログは継続
-            self._log(f"モデルキャッシュの取得に失敗しました: {exc}")
+            self._log(tr("log_cache_list_failed", msg=exc))
             cached = []
 
         total_bytes = 0
@@ -679,7 +697,7 @@ class CacheDialog(tk.Toplevel):
             self._items[item_id] = c
             total_bytes += c.size_bytes
 
-        self.total_var.set(f"合計: {format_size(total_bytes)} ({len(cached)} 件)")
+        self.total_var.set(tr("cache_total", size=format_size(total_bytes), count=len(cached)))
 
     def _delete_selected(self) -> None:
         if self._worker and self._worker.is_alive():
@@ -687,13 +705,13 @@ class CacheDialog(tk.Toplevel):
 
         selected = [self._items[i] for i in self.tree.selection() if i in self._items]
         if not selected:
-            messagebox.showinfo("未選択", "削除するモデルを選択してください。", parent=self)
+            messagebox.showinfo(tr("dlg_no_selection_title"), tr("dlg_no_selection_msg"), parent=self)
             return
 
         names = "\n".join(f"- {c.model_size} ({c.size_str})" for c in selected)
         if not messagebox.askyesno(
-                "キャッシュ削除の確認",
-                f"以下のモデルキャッシュを削除します。よろしいですか？\n\n{names}",
+                tr("dlg_confirm_delete_title"),
+                tr("dlg_confirm_delete_msg", names=names),
                 parent=self,
         ):
             return
@@ -705,9 +723,9 @@ class CacheDialog(tk.Toplevel):
         for c in cached_models:
             try:
                 delete_cached_model(c)
-                self._queue.put(("log", f"モデルキャッシュを削除しました: {c.model_size} ({c.size_str})"))
+                self._queue.put(("log", tr("log_cache_deleted", name=c.model_size, size=c.size_str)))
             except Exception as exc:  # noqa: BLE001 - GUIに表示するため全捕捉
-                self._queue.put(("log", f"削除に失敗しました: {c.model_size}: {exc}"))
+                self._queue.put(("log", tr("log_cache_delete_failed", name=c.model_size, msg=exc)))
         self._queue.put(("refresh", None))
 
     def _poll(self) -> None:
@@ -727,6 +745,7 @@ class CacheDialog(tk.Toplevel):
 
 
 def main() -> None:
+    init_language()
     root = TkinterDnD.Tk()
     WhisperGui(root)
     root.mainloop()
