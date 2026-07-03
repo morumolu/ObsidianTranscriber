@@ -74,7 +74,7 @@ DEBUG_ARG = Annotated[
 
 TZ: str = "Asia/Tokyo"
 
-SEGMENT_SEPARATOR: str = "\n\n"
+SEGMENT_SEPARATOR: str = "\n"
 
 # 進捗コールバック: (現在の処理済み秒, 総秒数)
 ProgressCallback = Callable[[float, float], None]
