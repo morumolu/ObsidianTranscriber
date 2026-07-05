@@ -5,11 +5,17 @@ import tkinter as tk
 import traceback
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any, Callable, cast
 
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
+from .config import (
+    get_record_filename_format,
+    get_vault_dir,
+    set_record_filename_format,
+    set_vault_dir,
+)
 from .i18n import LANGUAGES, get_language, init_language, save_language, tr
 from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
 from .model_size import ModelSize
@@ -208,6 +214,11 @@ class WhisperGui:
                 label=f"{label} ({ext})", value=ext, variable=self.record_format_var
             )
         settings_menu.add_cascade(label=tr("menu_record_format"), menu=format_menu)
+        settings_menu.add_command(
+            label=tr("menu_record_filename"), command=self._set_record_filename_format
+        )
+        settings_menu.add_command(label=tr("menu_vault"), command=self._set_vault_dir)
+        settings_menu.add_separator()
         language_menu = tk.Menu(settings_menu, tearoff=False)
         for code, name in LANGUAGES:
             language_menu.add_radiobutton(
@@ -235,6 +246,41 @@ class WhisperGui:
     def _change_language(self) -> None:
         save_language(self.ui_language_var.get())
         messagebox.showinfo(tr("lang_restart_title"), tr("lang_restart_msg"))
+
+    def _set_record_filename_format(self) -> None:
+        current = get_record_filename_format()
+        fmt = simpledialog.askstring(
+            tr("dlg_filename_format_title"),
+            tr("dlg_filename_format_prompt", example=datetime.now().strftime("%Y%m%d_%H%M")),
+            initialvalue=current,
+            parent=self.root,
+        )
+        if not fmt or fmt == current:
+            return
+        try:
+            example = datetime.now().strftime(fmt)
+            invalid = set('<>:"/\\|?*') & set(example)
+            if invalid or not example.strip():
+                raise ValueError(f"invalid characters: {' '.join(sorted(invalid)) or 'empty'}")
+        except ValueError as exc:
+            messagebox.showerror(
+                tr("dlg_filename_format_invalid_title"),
+                tr("dlg_filename_format_invalid_msg", msg=exc),
+            )
+            return
+        set_record_filename_format(fmt)
+        self._append_log(tr("log_filename_format_set", fmt=fmt, example=example))
+
+    def _set_vault_dir(self) -> None:
+        current = get_vault_dir()
+        path_str = filedialog.askdirectory(
+            title=tr("dlg_vault_title"),
+            initialdir=str(current) if current else "",
+        )
+        if not path_str:
+            return
+        set_vault_dir(Path(path_str))
+        self._append_log(tr("log_vault_set", path=path_str))
 
     def _show_about(self) -> None:
         messagebox.showinfo(tr("about_title"), tr("about_text", version=APP_VERSION))
@@ -460,7 +506,8 @@ class WhisperGui:
 
         duration = len(data) / SAMPLE_RATE
         ext = self.record_format_var.get()
-        default_name = datetime.now().strftime(f"recording_%Y%m%d_%H%M%S{ext}")
+        default_name = datetime.now().strftime(get_record_filename_format()) + ext
+        vault_dir = get_vault_dir()
         # 設定中のフォーマットを先頭にしてダイアログに渡す
         filetypes = sorted(
             ((f"{label} ({e})", f"*{e}") for e, label in record_formats()),
@@ -471,6 +518,7 @@ class WhisperGui:
             defaultextension=ext,
             filetypes=filetypes,
             initialfile=default_name,
+            initialdir=str(vault_dir) if vault_dir else "",
         )
         if not path_str:
             self._append_log(tr("log_record_discard"))

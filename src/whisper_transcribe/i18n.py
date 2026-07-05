@@ -3,12 +3,10 @@
 言語は `~/.whisper_transcribe.json` に保存され、次回起動時に反映される。
 未設定の場合は OS のロケールから自動判定する。
 """
-import json
 import locale
-from pathlib import Path
 from typing import Any
 
-CONFIG_PATH = Path.home() / ".whisper_transcribe.json"
+from .config import get_value, set_value
 
 # (言語コード, メニュー表示名)。表示名は翻訳しない
 LANGUAGES: list[tuple[str, str]] = [("ja", "日本語"), ("en", "English")]
@@ -113,6 +111,16 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         # 言語設定
         "lang_restart_title": "言語設定",
         "lang_restart_msg": "言語は再起動後に反映されます。",
+        # 録音ファイル名・Vault設定
+        "menu_record_filename": "録音ファイル名の形式...",
+        "dlg_filename_format_title": "録音ファイル名の形式",
+        "dlg_filename_format_prompt": "strftime形式で入力してください。\n例: %Y%m%d_%H%M → {example}",
+        "dlg_filename_format_invalid_title": "無効な形式",
+        "dlg_filename_format_invalid_msg": "この形式は使用できません: {msg}",
+        "log_filename_format_set": "録音ファイル名の形式を設定しました: {fmt} (例: {example})",
+        "menu_vault": "Obsidian Vault フォルダ...",
+        "dlg_vault_title": "Obsidian Vault (録音の保存先) フォルダを選択",
+        "log_vault_set": "Vault フォルダを設定しました: {path}",
         # 録音
         "rec_start_failed": "録音を開始できませんでした: {msg}",
         "rec_unsupported_format": "未対応の保存形式です: '{ext}' (対応: {supported})",
@@ -214,6 +222,16 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         # Language setting
         "lang_restart_title": "Language",
         "lang_restart_msg": "The language change will take effect after restarting the app.",
+        # Recording filename / vault settings
+        "menu_record_filename": "Recording File Name Format...",
+        "dlg_filename_format_title": "Recording File Name Format",
+        "dlg_filename_format_prompt": "Enter a strftime pattern.\ne.g. %Y%m%d_%H%M -> {example}",
+        "dlg_filename_format_invalid_title": "Invalid Format",
+        "dlg_filename_format_invalid_msg": "This pattern cannot be used: {msg}",
+        "log_filename_format_set": "Recording file name format set: {fmt} (e.g. {example})",
+        "menu_vault": "Obsidian Vault Folder...",
+        "dlg_vault_title": "Select Obsidian Vault (Recording Destination) Folder",
+        "log_vault_set": "Vault folder set: {path}",
         # Recording
         "rec_start_failed": "Failed to start recording: {msg}",
         "rec_unsupported_format": "Unsupported save format: '{ext}' (supported: {supported})",
@@ -235,27 +253,15 @@ def detect_language() -> str:
     return "ja" if ("ja" in low or "japan" in low) else "en"
 
 
-def load_config() -> dict[str, Any]:
-    try:
-        return dict(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
-        return {}
-
-
 def save_language(lang: str) -> None:
     """言語設定を保存する (次回起動時に反映)。"""
-    config = load_config()
-    config["language"] = lang
-    try:
-        CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
-    except OSError:
-        pass
+    set_value("language", lang)
 
 
 def init_language() -> str:
     """設定ファイル (無ければロケール) から言語を初期化する。"""
     global _current_language
-    lang = load_config().get("language")
+    lang = get_value("language")
     if lang not in _TRANSLATIONS:
         lang = detect_language()
     _current_language = lang
