@@ -8,6 +8,10 @@ CONFIG_PATH = Path.home() / ".whisper_transcribe.json"
 # 録音ファイル名の strftime 形式 (例: 20260705_0343)
 DEFAULT_RECORD_FILENAME_FORMAT = "%Y%m%d_%H%M"
 
+# 録音 (中間生成物) のキャッシュ先と保持数
+RECORDINGS_CACHE_DIR = Path.home() / ".whisper_transcribe" / "recordings"
+DEFAULT_RECORDING_CACHE_LIMIT = 20
+
 
 def load_config() -> dict[str, Any]:
     try:
@@ -62,3 +66,18 @@ def get_vault_dir() -> Path | None:
 
 def set_vault_dir(path: Path) -> None:
     set_value("vault_dir", str(path))
+
+
+def get_recordings_cache_dir() -> Path:
+    """録音キャッシュのディレクトリを返す (無ければ作成)。"""
+    RECORDINGS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return RECORDINGS_CACHE_DIR
+
+
+def get_recording_cache_limit() -> int:
+    value = get_value("recording_cache_limit")
+    return value if isinstance(value, int) and value > 0 else DEFAULT_RECORDING_CACHE_LIMIT
+
+
+def set_recording_cache_limit(limit: int) -> None:
+    set_value("recording_cache_limit", limit)

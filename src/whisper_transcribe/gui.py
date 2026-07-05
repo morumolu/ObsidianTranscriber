@@ -1,5 +1,8 @@
 import math
+import os
 import queue
+import subprocess
+import sys
 import threading
 import tkinter as tk
 import traceback
@@ -15,9 +18,12 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 from .config import (
     get_bool,
     get_record_filename_format,
+    get_recording_cache_limit,
+    get_recordings_cache_dir,
     get_str,
     get_vault_dir,
     set_record_filename_format,
+    set_recording_cache_limit,
     set_value,
     set_vault_dir,
 )
@@ -146,6 +152,9 @@ class WhisperGui:
         )
         tool_menu.add_separator()
         tool_menu.add_command(label=tr("menu_cache"), command=self._open_cache_dialog)
+        tool_menu.add_command(
+            label=tr("menu_open_recording_cache"), command=self._open_recording_cache_dir
+        )
         tool_menu.add_separator()
         tool_menu.add_command(label=tr("menu_clear_log"), command=self._clear_log)
         menubar.add_cascade(label=tr("menu_tools"), menu=tool_menu)
@@ -161,6 +170,9 @@ class WhisperGui:
             label=tr("menu_record_filename"), command=self._set_record_filename_format
         )
         settings_menu.add_command(label=tr("menu_vault"), command=self._set_vault_dir)
+        settings_menu.add_command(
+            label=tr("menu_recording_cache_limit"), command=self._set_recording_cache_limit
+        )
         settings_menu.add_checkbutton(
             label=tr("menu_auto_transcribe"), variable=self.auto_transcribe_var
         )
@@ -227,6 +239,21 @@ class WhisperGui:
             return
         set_vault_dir(Path(path_str))
         self._append_log(tr("log_vault_set", path=path_str))
+
+    def _set_recording_cache_limit(self) -> None:
+        limit = simpledialog.askinteger(
+            tr("dlg_recording_cache_limit_title"),
+            tr("dlg_recording_cache_limit_prompt", dir=get_recordings_cache_dir()),
+            initialvalue=get_recording_cache_limit(),
+            minvalue=1,
+            maxvalue=999,
+            parent=self.root,
+        )
+        if limit is None or limit == get_recording_cache_limit():
+            return
+        set_recording_cache_limit(limit)
+        self._append_log(tr("log_recording_cache_limit_set", limit=limit))
+        self._prune_recording_cache()
 
     def _show_about(self) -> None:
         messagebox.showinfo(tr("about_title"), tr("about_text", version=APP_VERSION))
@@ -424,8 +451,19 @@ class WhisperGui:
             return
         self.input_path = path
         self.input_var.set(str(path))
-        # デフォルト出力名 = 入力ファイルの拡張子を .md に変えたもの
-        self.output_var.set(str(path.with_suffix(".md")))
+        self.output_var.set(str(self._default_output_for(path)))
+
+    @staticmethod
+    def _default_output_for(path: Path) -> Path:
+        """デフォルトの Markdown 出力先を返す。
+
+        録音キャッシュ由来の入力は Vault フォルダへ (成果物の md だけが Vault に残る)。
+        それ以外 (D&D や参照で選んだファイル) は入力と同じ場所。
+        """
+        vault = get_vault_dir()
+        if vault is not None and path.parent == get_recordings_cache_dir():
+            return vault / path.with_suffix(".md").name
+        return path.with_suffix(".md")
 
     def _browse_output(self) -> None:
         initial = Path(self.output_var.get()) if self.output_var.get() else None
@@ -488,32 +526,9 @@ class WhisperGui:
 
         duration = len(data) / SAMPLE_RATE
         ext = self.record_format_var.get()
-        default_name = datetime.now().strftime(get_record_filename_format()) + ext
-        vault_dir = get_vault_dir()
-        auto = self.auto_transcribe_var.get()
-
-        if auto and vault_dir is not None:
-            # 自動モード: ダイアログを出さず Vault に直接保存
-            target = self._unique_path(vault_dir / default_name)
-        else:
-            if auto:
-                self._append_log(tr("log_auto_no_vault"))
-            # 設定中のフォーマットを先頭にしてダイアログに渡す
-            filetypes = sorted(
-                ((f"{label} ({e})", f"*{e}") for e, label in record_formats()),
-                key=lambda t: not t[1].endswith(ext),
-            )
-            path_str = filedialog.asksaveasfilename(
-                title=tr("dlg_record_save"),
-                defaultextension=ext,
-                filetypes=filetypes,
-                initialfile=default_name,
-                initialdir=str(vault_dir) if vault_dir else "",
-            )
-            if not path_str:
-                self._append_log(tr("log_record_discard"))
-                return
-            target = Path(path_str)
+        name = datetime.now().strftime(get_record_filename_format()) + ext
+        # 録音は中間生成物としてキャッシュへ自動保存する (成果物は Markdown)
+        target = self._unique_path(get_recordings_cache_dir() / name)
 
         try:
             path = Recorder.save(target, data)
@@ -521,9 +536,24 @@ class WhisperGui:
             messagebox.showerror(tr("dlg_save_error_title"), tr("dlg_save_error_msg", msg=exc))
             return
         self._append_log(tr("log_record_saved", path=path, sec=f"{duration:.1f}"))
+        self._prune_recording_cache()
         self._set_input(path)
-        if auto:
+        if self.auto_transcribe_var.get():
             self._start(auto=True)
+
+    def _prune_recording_cache(self) -> None:
+        """録音キャッシュが上限を超えていたら古い順に削除する。"""
+        limit = get_recording_cache_limit()
+        files = sorted(
+            (f for f in get_recordings_cache_dir().iterdir() if f.is_file()),
+            key=lambda f: f.stat().st_mtime,
+        )
+        for f in files[: max(0, len(files) - limit)]:
+            try:
+                f.unlink()
+                self._append_log(tr("log_recording_pruned", name=f.name))
+            except OSError as exc:
+                self._append_log(tr("log_recording_prune_failed", name=f.name, msg=exc))
 
     @staticmethod
     def _unique_path(path: Path) -> Path:
@@ -716,6 +746,16 @@ class WhisperGui:
     # ---------------------------------------------------------- model cache
     def _open_cache_dialog(self) -> None:
         CacheDialog(self.root, self._append_log)
+
+    def _open_recording_cache_dir(self) -> None:
+        """録音キャッシュフォルダを OS のファイラーで開く。"""
+        path = get_recordings_cache_dir()
+        if sys.platform == "win32":
+            os.startfile(path)  # noqa: S606
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
 
     # ------------------------------------------------------------------- log
     def _append_log(self, msg: str) -> None:

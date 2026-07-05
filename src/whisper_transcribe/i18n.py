@@ -125,7 +125,14 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "log_vault_set": "Vault フォルダを設定しました: {path}",
         # 自動文字起こし
         "menu_auto_transcribe": "録音停止後に自動で文字起こし",
-        "log_auto_no_vault": "Vault フォルダが未設定のため、保存先を選択してください。",
+        # 録音キャッシュ
+        "menu_open_recording_cache": "録音キャッシュフォルダを開く",
+        "menu_recording_cache_limit": "録音キャッシュの上限数...",
+        "dlg_recording_cache_limit_title": "録音キャッシュの上限数",
+        "dlg_recording_cache_limit_prompt": "キャッシュに残す録音ファイルの最大数を入力してください。\nキャッシュ場所: {dir}",
+        "log_recording_cache_limit_set": "録音キャッシュの上限を {limit} 件に設定しました。",
+        "log_recording_pruned": "古い録音をキャッシュから削除しました: {name}",
+        "log_recording_prune_failed": "録音キャッシュの削除に失敗しました: {name}: {msg}",
         # プレビュー
         "preview_title": "文字起こし結果のプレビュー",
         "status_preview": "結果を確認してください (プレビューを表示中)",
@@ -250,7 +257,14 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "log_vault_set": "Vault folder set: {path}",
         # Auto transcription
         "menu_auto_transcribe": "Auto-transcribe after recording stops",
-        "log_auto_no_vault": "Vault folder is not set; please choose where to save.",
+        # Recording cache
+        "menu_open_recording_cache": "Open Recording Cache Folder",
+        "menu_recording_cache_limit": "Recording Cache Limit...",
+        "dlg_recording_cache_limit_title": "Recording Cache Limit",
+        "dlg_recording_cache_limit_prompt": "Enter the maximum number of recordings to keep in the cache.\nCache location: {dir}",
+        "log_recording_cache_limit_set": "Recording cache limit set to {limit}.",
+        "log_recording_pruned": "Removed old recording from cache: {name}",
+        "log_recording_prune_failed": "Failed to remove cached recording: {name}: {msg}",
         # Preview
         "preview_title": "Transcription Preview",
         "status_preview": "Review the result (preview open)",
