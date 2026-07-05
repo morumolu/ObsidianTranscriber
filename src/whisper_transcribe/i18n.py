@@ -53,6 +53,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_processing": "処理中...",
         "status_test_processing": "テスト処理中...",
         "status_progress": "処理中... {cur}s / {total}s ({pct}%)",
+        "status_downloading": "モデルをダウンロード中... {done}MB / {total}MB ({pct}%)",
         "status_recording": "録音中... {sec}s",
         "status_done": "完了: {path}",
         "status_test_done": "テスト完了 (結果は処理ログを確認、ファイルは未保存)",
@@ -121,6 +122,18 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_vault": "Obsidian Vault フォルダ...",
         "dlg_vault_title": "Obsidian Vault (録音の保存先) フォルダを選択",
         "log_vault_set": "Vault フォルダを設定しました: {path}",
+        # 自動文字起こし
+        "menu_auto_transcribe": "録音停止後に自動で文字起こし",
+        "log_auto_no_vault": "Vault フォルダが未設定のため、保存先を選択してください。",
+        # プレビュー
+        "preview_title": "文字起こし結果のプレビュー",
+        "status_preview": "結果を確認してください (プレビューを表示中)",
+        "btn_save": "保存",
+        "btn_copy": "コピー",
+        "btn_discard": "破棄",
+        "log_saved": "保存しました: {path}",
+        "log_copied": "クリップボードにコピーしました。",
+        "log_preview_discarded": "保存せずに閉じました。",
         # 録音
         "rec_start_failed": "録音を開始できませんでした: {msg}",
         "rec_unsupported_format": "未対応の保存形式です: '{ext}' (対応: {supported})",
@@ -164,6 +177,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_processing": "Processing...",
         "status_test_processing": "Test processing...",
         "status_progress": "Processing... {cur}s / {total}s ({pct}%)",
+        "status_downloading": "Downloading model... {done}MB / {total}MB ({pct}%)",
         "status_recording": "Recording... {sec}s",
         "status_done": "Done: {path}",
         "status_test_done": "Test finished (see log; no file saved)",
@@ -232,6 +246,18 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_vault": "Obsidian Vault Folder...",
         "dlg_vault_title": "Select Obsidian Vault (Recording Destination) Folder",
         "log_vault_set": "Vault folder set: {path}",
+        # Auto transcription
+        "menu_auto_transcribe": "Auto-transcribe after recording stops",
+        "log_auto_no_vault": "Vault folder is not set; please choose where to save.",
+        # Preview
+        "preview_title": "Transcription Preview",
+        "status_preview": "Review the result (preview open)",
+        "btn_save": "Save",
+        "btn_copy": "Copy",
+        "btn_discard": "Discard",
+        "log_saved": "Saved: {path}",
+        "log_copied": "Copied to clipboard.",
+        "log_preview_discarded": "Closed without saving.",
         # Recording
         "rec_start_failed": "Failed to start recording: {msg}",
         "rec_unsupported_format": "Unsupported save format: '{ext}' (supported: {supported})",

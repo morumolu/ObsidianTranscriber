@@ -7,7 +7,7 @@ from datetime import datetime
 from functools import lru_cache
 from logging import basicConfig, getLogger
 from pathlib import Path
-from typing import Annotated, Callable
+from typing import Annotated, Any, Callable
 from zoneinfo import ZoneInfo
 
 from .model_size import ModelSize
@@ -41,6 +41,8 @@ setup_cuda_dll_path()
 import typer
 from faster_whisper import WhisperModel
 from faster_whisper.transcribe import Segment
+from faster_whisper.utils import _MODELS, download_model
+from huggingface_hub import snapshot_download
 
 logger = getLogger(__name__)
 basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -113,6 +115,90 @@ def resolve_device(device: str) -> str:
     return device
 
 
+_MODEL_FILE_PATTERNS = [
+    "config.json",
+    "preprocessor_config.json",
+    "model.bin",
+    "tokenizer.json",
+    "vocabulary.*",
+]
+
+
+def _repo_cache_dir(repo_id: str) -> Path:
+    from huggingface_hub.constants import HF_HUB_CACHE
+
+    return Path(HF_HUB_CACHE) / ("models--" + repo_id.replace("/", "--"))
+
+
+def _dir_size(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def _repo_total_size(repo_id: str) -> int:
+    """ダウンロード対象ファイルの合計サイズを HF API から取得する (失敗時 0)。"""
+    import fnmatch
+
+    from huggingface_hub import HfApi
+
+    try:
+        info = HfApi().model_info(repo_id, files_metadata=True)
+        return sum(
+            s.size or 0
+            for s in (info.siblings or [])
+            if any(fnmatch.fnmatch(s.rfilename, p) for p in _MODEL_FILE_PATTERNS)
+        )
+    except Exception:  # noqa: BLE001 - 進捗表示できないだけでダウンロードは続行可能
+        return 0
+
+
+def ensure_model_downloaded(
+        model_size: ModelSize | str,
+        log: "LogCallback | None" = None,
+        download_progress: "ProgressCallback | None" = None,
+) -> None:
+    """モデルが未キャッシュならダウンロードする。進捗は download_progress (done, total バイト) に通知。
+
+    hf hub はファイル単位の進捗フックを公開していないため、キャッシュフォルダの
+    サイズを別スレッドでポーリングして進捗を概算する。
+    """
+    name = model_name(model_size)
+    try:
+        download_model(name, local_files_only=True)
+        return  # キャッシュ済み
+    except Exception:  # noqa: BLE001 - 未キャッシュならダウンロードに進む
+        pass
+
+    if log:
+        log(f"Downloading model: {name}")
+    repo_id = _MODELS.get(name, name)
+
+    stop_polling = threading.Event()
+    if download_progress is not None:
+        # xet 経由だとバイト列が別のチャンクキャッシュに書かれ、フォルダサイズの
+        # ポーリングで進捗を測れないため、通常の HTTP ダウンロードに切り替える
+        import huggingface_hub.constants as hf_constants
+
+        hf_constants.HF_HUB_DISABLE_XET = True
+
+        total = _repo_total_size(repo_id)
+        cache_dir = _repo_cache_dir(repo_id)
+        base = _dir_size(cache_dir)
+
+        def poll() -> None:
+            while total and not stop_polling.wait(0.5):
+                done = max(0, _dir_size(cache_dir) - base)
+                download_progress(float(min(done, total)), float(total))
+
+        threading.Thread(target=poll, daemon=True).start()
+
+    try:
+        snapshot_download(repo_id, allow_patterns=_MODEL_FILE_PATTERNS)
+    finally:
+        stop_polling.set()
+
+
 def load_model(
         model_size: ModelSize | str,
         device: str = "auto",
@@ -127,9 +213,8 @@ def load_model(
     return WhisperModel(model_name(model_size), device=device, compute_type=compute_type)
 
 
-def transcribe_file(
+def transcribe_to_markdown(
         input_path: Path,
-        output_path: Path,
         model_size: ModelSize | str = ModelSize.large_v3,
         language: str = "ja",
         timestamps: bool = False,
@@ -140,19 +225,17 @@ def transcribe_file(
         compute_type: str = "auto",
         cancel_event: threading.Event | None = None,
         max_duration: float | None = None,
-        save_output: bool = True,
-) -> Path | None:
-    """音声ファイルを文字起こしし、Obsidian向けMarkdownとして保存する中核処理。
+        download_progress: ProgressCallback | None = None,
+) -> str:
+    """音声ファイルを文字起こしし、Obsidian向けMarkdown文字列を返す中核処理。
 
-    CLI と GUI の双方から呼び出す。progress / log は任意のコールバック。
-    入力・出力が不正な場合は FileNotFoundError / ValueError を送出する。
-    cancel_event がセットされると TranscriptionCancelled を送出する（ファイルは保存しない）。
-    max_duration を指定すると先頭 N 秒で打ち切る。save_output=False で保存をスキップし None を返す。
+    progress / log / download_progress は任意のコールバック。
+    入力が不正な場合は FileNotFoundError / ValueError を送出する。
+    cancel_event がセットされると TranscriptionCancelled を送出する。
+    max_duration を指定すると先頭 N 秒で打ち切る。
     """
     input_path = Path(input_path)
-    output_path = Path(output_path)
     validate_input_file(input_path)
-    validate_output_path(output_path)
 
     def emit(msg: str) -> None:
         logger.info(msg)
@@ -160,6 +243,8 @@ def transcribe_file(
             log(msg)
 
     device = resolve_device(device)
+    if model is None:
+        ensure_model_downloaded(model_size, log=emit, download_progress=download_progress)
     emit(f"Loading model: {model_name(model_size)} (device={device}, compute={compute_type})")
     if model is None:
         model = load_model(model_size, device=device, compute_type=compute_type)
@@ -191,10 +276,6 @@ def transcribe_file(
     if progress and total:
         progress(total, total)
 
-    if not save_output:
-        emit("Test transcription finished (not saved).")
-        return None
-
     now = datetime.now(tz=ZoneInfo(TZ))
     frontmatter = (
         "---\n"
@@ -218,7 +299,57 @@ def transcribe_file(
         for seg in collected:
             body += f"- `{seg.start:.2f}s - {seg.end:.2f}s` {seg.text.strip()}\n"
 
-    output_path.write_text(frontmatter + body, encoding="utf-8")
+    return frontmatter + body
+
+
+def transcribe_file(
+        input_path: Path,
+        output_path: Path,
+        model_size: ModelSize | str = ModelSize.large_v3,
+        language: str = "ja",
+        timestamps: bool = False,
+        progress: ProgressCallback | None = None,
+        log: LogCallback | None = None,
+        model: WhisperModel | None = None,
+        device: str = "auto",
+        compute_type: str = "auto",
+        cancel_event: threading.Event | None = None,
+        max_duration: float | None = None,
+        save_output: bool = True,
+        download_progress: ProgressCallback | None = None,
+) -> Path | None:
+    """文字起こしして Markdown ファイルに保存する (transcribe_to_markdown + 書き出し)。
+
+    save_output=False で保存をスキップし None を返す。
+    """
+    output_path = Path(output_path)
+    validate_output_path(output_path)
+
+    def emit(msg: str) -> None:
+        logger.info(msg)
+        if log:
+            log(msg)
+
+    content = transcribe_to_markdown(
+        input_path,
+        model_size=model_size,
+        language=language,
+        timestamps=timestamps,
+        progress=progress,
+        log=log,
+        model=model,
+        device=device,
+        compute_type=compute_type,
+        cancel_event=cancel_event,
+        max_duration=max_duration,
+        download_progress=download_progress,
+    )
+
+    if not save_output:
+        emit("Test transcription finished (not saved).")
+        return None
+
+    output_path.write_text(content, encoding="utf-8")
     emit(f"Saved to: {output_path}")
     return output_path
 

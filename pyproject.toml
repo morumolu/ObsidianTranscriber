@@ -50,5 +50,6 @@ module = [
     "PyInstaller.*",
     "sounddevice",
     "soundfile",
+    "tqdm.*",
 ]
 ignore_missing_imports = true

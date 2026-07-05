@@ -11,16 +11,24 @@ from typing import Any, Callable, cast
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from .config import (
+    get_bool,
     get_record_filename_format,
+    get_str,
     get_vault_dir,
     set_record_filename_format,
+    set_value,
     set_vault_dir,
 )
 from .i18n import LANGUAGES, get_language, init_language, save_language, tr
 from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
 from .model_size import ModelSize
 from .recorder import SAMPLE_RATE, Recorder, RecorderError
-from .runner import SUPPORTED_EXTENSIONS, TranscriptionCancelled, transcribe_file
+from .runner import (
+    SUPPORTED_EXTENSIONS,
+    TranscriptionCancelled,
+    transcribe_to_markdown,
+    validate_output_path,
+)
 
 APP_TITLE = "Whisper - Audio Transcription Tool For Obsidian"
 APP_VERSION = "0.1.0"
@@ -78,14 +86,28 @@ class WhisperGui:
         self.worker: threading.Thread | None = None
         self.recorder = Recorder()
         self._record_timer: str | None = None
-        self.record_format_var = tk.StringVar(value=".mp3")
+        self.record_format_var = tk.StringVar(value=get_str("record_format", ".mp3"))
+        self.auto_transcribe_var = tk.BooleanVar(value=get_bool("auto_transcribe", False))
         self.ui_language_var = tk.StringVar(value=get_language())
         self.cancel_event: threading.Event | None = None
 
         self._setup_style()
         self._build_menu()
         self._build_widgets()
+        self._bind_setting_persistence()
         self.root.after(100, self._poll_queue)
+
+    def _bind_setting_persistence(self) -> None:
+        """設定項目の変更を config に保存し、次回起動時に復元できるようにする。"""
+        persist: list[tuple[tk.Variable, str]] = [
+            (self.record_format_var, "record_format"),
+            (self.model_var, "model_size"),
+            (self.language_var, "audio_language"),
+            (self.timestamps_var, "timestamps"),
+            (self.auto_transcribe_var, "auto_transcribe"),
+        ]
+        for var, key in persist:
+            var.trace_add("write", lambda *_a, v=var, k=key: set_value(k, v.get()))
 
     # ---------------------------------------------------------------- style
     def _setup_style(self) -> None:
@@ -218,6 +240,9 @@ class WhisperGui:
             label=tr("menu_record_filename"), command=self._set_record_filename_format
         )
         settings_menu.add_command(label=tr("menu_vault"), command=self._set_vault_dir)
+        settings_menu.add_checkbutton(
+            label=tr("menu_auto_transcribe"), variable=self.auto_transcribe_var
+        )
         settings_menu.add_separator()
         language_menu = tk.Menu(settings_menu, tearoff=False)
         for code, name in LANGUAGES:
@@ -329,7 +354,10 @@ class WhisperGui:
         opt_frame.pack(fill="x", padx=12, pady=4)
 
         ttk.Label(opt_frame, text=tr("label_model")).pack(side="left")
-        self.model_var = tk.StringVar(value=ModelSize.large_v3.value)
+        saved_model = get_str("model_size", ModelSize.large_v3.value)
+        if saved_model not in {m.value for m in ModelSize}:
+            saved_model = ModelSize.large_v3.value
+        self.model_var = tk.StringVar(value=saved_model)
         model_box = ttk.Combobox(
             opt_frame,
             textvariable=self.model_var,
@@ -340,10 +368,10 @@ class WhisperGui:
         model_box.pack(side="left", padx=(4, 12))
 
         ttk.Label(opt_frame, text=tr("label_language")).pack(side="left")
-        self.language_var = tk.StringVar(value="ja")
+        self.language_var = tk.StringVar(value=get_str("audio_language", "ja"))
         ttk.Entry(opt_frame, textvariable=self.language_var, width=6).pack(side="left", padx=(4, 12))
 
-        self.timestamps_var = tk.BooleanVar(value=False)
+        self.timestamps_var = tk.BooleanVar(value=get_bool("timestamps", False))
         ttk.Checkbutton(opt_frame, text=tr("check_timestamps"), variable=self.timestamps_var).pack(side="left")
 
         # 実行ボタン + 録音ボタン + レベルメータ
@@ -508,29 +536,51 @@ class WhisperGui:
         ext = self.record_format_var.get()
         default_name = datetime.now().strftime(get_record_filename_format()) + ext
         vault_dir = get_vault_dir()
-        # 設定中のフォーマットを先頭にしてダイアログに渡す
-        filetypes = sorted(
-            ((f"{label} ({e})", f"*{e}") for e, label in record_formats()),
-            key=lambda t: not t[1].endswith(ext),
-        )
-        path_str = filedialog.asksaveasfilename(
-            title=tr("dlg_record_save"),
-            defaultextension=ext,
-            filetypes=filetypes,
-            initialfile=default_name,
-            initialdir=str(vault_dir) if vault_dir else "",
-        )
-        if not path_str:
-            self._append_log(tr("log_record_discard"))
-            return
+        auto = self.auto_transcribe_var.get()
+
+        if auto and vault_dir is not None:
+            # 自動モード: ダイアログを出さず Vault に直接保存
+            target = self._unique_path(vault_dir / default_name)
+        else:
+            if auto:
+                self._append_log(tr("log_auto_no_vault"))
+            # 設定中のフォーマットを先頭にしてダイアログに渡す
+            filetypes = sorted(
+                ((f"{label} ({e})", f"*{e}") for e, label in record_formats()),
+                key=lambda t: not t[1].endswith(ext),
+            )
+            path_str = filedialog.asksaveasfilename(
+                title=tr("dlg_record_save"),
+                defaultextension=ext,
+                filetypes=filetypes,
+                initialfile=default_name,
+                initialdir=str(vault_dir) if vault_dir else "",
+            )
+            if not path_str:
+                self._append_log(tr("log_record_discard"))
+                return
+            target = Path(path_str)
 
         try:
-            path = Recorder.save(Path(path_str), data)
+            path = Recorder.save(target, data)
         except Exception as exc:  # noqa: BLE001 - GUIに表示するため全捕捉
             messagebox.showerror(tr("dlg_save_error_title"), tr("dlg_save_error_msg", msg=exc))
             return
         self._append_log(tr("log_record_saved", path=path, sec=f"{duration:.1f}"))
         self._set_input(path)
+        if auto:
+            self._start(auto=True)
+
+    @staticmethod
+    def _unique_path(path: Path) -> Path:
+        """既存ファイルと衝突しないパスを返す (同名なら _1, _2... を付与)。"""
+        if not path.exists():
+            return path
+        for i in range(1, 1000):
+            candidate = path.with_stem(f"{path.stem}_{i}")
+            if not candidate.exists():
+                return candidate
+        return path
 
     # --------------------------------------------------------------- running
     def _set_running(self, running: bool) -> None:
@@ -540,7 +590,7 @@ class WhisperGui:
         self.test_button.configure(state=state)
         self.cancel_button.configure(state="normal" if running else "disabled")
 
-    def _start(self, test: bool = False) -> None:
+    def _start(self, test: bool = False, auto: bool = False) -> None:
         if self.worker and self.worker.is_alive():
             return
 
@@ -555,6 +605,11 @@ class WhisperGui:
         output = self.output_var.get().strip()
         if not output:
             messagebox.showinfo(tr("dlg_no_output_title"), tr("dlg_no_output_msg"))
+            return
+        try:
+            validate_output_path(Path(output))
+        except (OSError, ValueError) as exc:
+            messagebox.showerror(tr("dlg_error_title"), str(exc))
             return
 
         self._set_running(True)
@@ -573,6 +628,7 @@ class WhisperGui:
                 timestamps=self.timestamps_var.get(),
                 cancel_event=self.cancel_event,
                 test=test,
+                auto=auto,
             ),
             daemon=True,
         )
@@ -597,22 +653,33 @@ class WhisperGui:
             timestamps: bool,
             cancel_event: threading.Event,
             test: bool,
+            auto: bool,
     ) -> None:
-        """別スレッドで実行。tk には触れず queue 経由で通知する。"""
+        """別スレッドで実行。tk には触れず queue 経由で通知する。
+
+        test: 先頭のみ処理しログ表示だけ行う。
+        auto: プレビューを出さず直接保存する。
+        通常: 内容を生成しプレビューダイアログで確認後に保存する。
+        """
         try:
-            transcribe_file(
+            content = transcribe_to_markdown(
                 input_path,
-                output_path,
                 model_size=model_size,
                 language=language,
                 timestamps=timestamps,
                 progress=lambda cur, total: self.msg_queue.put(("progress", (cur, total))),
                 log=lambda msg: self.msg_queue.put(("log", msg)),
+                download_progress=lambda cur, total: self.msg_queue.put(("dl_progress", (cur, total))),
                 cancel_event=cancel_event,
                 max_duration=TEST_DURATION if test else None,
-                save_output=not test,
             )
-            self.msg_queue.put(("test_done" if test else "done", str(output_path)))
+            if test:
+                self.msg_queue.put(("test_done", None))
+            elif auto:
+                output_path.write_text(content, encoding="utf-8")
+                self.msg_queue.put(("done", str(output_path)))
+            else:
+                self.msg_queue.put(("result", (content, str(output_path))))
         except TranscriptionCancelled:
             self.msg_queue.put(("cancelled", None))
         except Exception as exc:  # noqa: BLE001 - GUIに表示するため全捕捉
@@ -632,6 +699,18 @@ class WhisperGui:
                     self.status_var.set(
                         tr("status_progress", cur=f"{cur:.0f}", total=f"{total:.0f}", pct=f"{pct:.0f}")
                     )
+                elif kind == "dl_progress":
+                    cur, total = cast("tuple[float, float]", payload)
+                    pct = (cur / total * 100) if total else 0.0
+                    self.progress.configure(value=pct)
+                    self.status_var.set(
+                        tr(
+                            "status_downloading",
+                            done=f"{cur / 1024 / 1024:.0f}",
+                            total=f"{total / 1024 / 1024:.0f}",
+                            pct=f"{pct:.0f}",
+                        )
+                    )
                 elif kind == "done":
                     message: str = cast(str, payload)
                     self.progress.configure(value=100)
@@ -642,6 +721,19 @@ class WhisperGui:
                     self.progress.configure(value=100)
                     self.status_var.set(tr("status_test_done"))
                     self._set_running(False)
+                elif kind == "result":
+                    content, out = cast("tuple[str, str]", payload)
+                    self.progress.configure(value=100)
+                    self.status_var.set(tr("status_preview"))
+                    self._set_running(False)
+                    PreviewDialog(
+                        self.root,
+                        content,
+                        Path(out),
+                        self._append_log,
+                        on_saved=self._on_preview_saved,
+                        on_discard=self._on_preview_discarded,
+                    )
                 elif kind == "cancelled":
                     self.progress.configure(value=0)
                     self.status_var.set(tr("status_cancelled"))
@@ -658,6 +750,15 @@ class WhisperGui:
 
         self.root.after(100, self._poll_queue)
 
+    # --------------------------------------------------------------- preview
+    def _on_preview_saved(self, path: Path) -> None:
+        self.status_var.set(tr("status_done", path=path))
+        self._append_log(tr("log_saved", path=path))
+
+    def _on_preview_discarded(self) -> None:
+        self.progress.configure(value=0)
+        self.status_var.set(tr("status_idle"))
+
     # ---------------------------------------------------------- model cache
     def _open_cache_dialog(self) -> None:
         CacheDialog(self.root, self._append_log)
@@ -673,6 +774,91 @@ class WhisperGui:
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
+
+
+class PreviewDialog(tk.Toplevel):
+    """文字起こし結果を保存前に確認・編集するモーダルダイアログ。"""
+
+    def __init__(
+            self,
+            parent: tk.Tk,
+            content: str,
+            output_path: Path,
+            log: Callable[[str], None],
+            on_saved: Callable[[Path], None],
+            on_discard: Callable[[], None],
+    ) -> None:
+        super().__init__(parent)
+        self.title(tr("preview_title"))
+        self.configure(bg=BG)
+        self.geometry("640x520")
+        self.minsize(480, 360)
+
+        self._output_path = output_path
+        self._log = log
+        self._on_saved = on_saved
+        self._on_discard = on_discard
+        self._saved = False
+
+        ttk.Label(self, text=str(output_path), style="Muted.TLabel").pack(
+            anchor="w", padx=12, pady=(10, 2)
+        )
+
+        text_frame = ttk.Frame(self)
+        text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+        self.text = tk.Text(
+            text_frame,
+            wrap="word",
+            font=FONT_UI,
+            relief="flat",
+            bg=SURFACE,
+            fg=TEXT,
+            padx=8,
+            pady=6,
+        )
+        scroll = ttk.Scrollbar(text_frame, command=self.text.yview)
+        self.text.configure(yscrollcommand=scroll.set)
+        self.text.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.text.insert("1.0", content)
+
+        btn_frame = ttk.Frame(self)
+        btn_frame.pack(fill="x", padx=12, pady=(6, 12))
+        ttk.Button(btn_frame, text=tr("btn_copy"), command=self._copy).pack(side="left")
+        ttk.Button(
+            btn_frame, text=tr("btn_save"), style="Accent.TButton", command=self._save
+        ).pack(side="right")
+        ttk.Button(btn_frame, text=tr("btn_discard"), command=self._discard).pack(
+            side="right", padx=(0, 8)
+        )
+
+        self.protocol("WM_DELETE_WINDOW", self._discard)
+        self.transient(parent)
+        self.grab_set()
+
+    def _content(self) -> str:
+        return self.text.get("1.0", "end-1c")
+
+    def _save(self) -> None:
+        try:
+            self._output_path.write_text(self._content(), encoding="utf-8")
+        except OSError as exc:
+            messagebox.showerror(tr("dlg_error_title"), str(exc), parent=self)
+            return
+        self._saved = True
+        self._on_saved(self._output_path)
+        self.destroy()
+
+    def _copy(self) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(self._content())
+        self._log(tr("log_copied"))
+
+    def _discard(self) -> None:
+        if not self._saved:
+            self._log(tr("log_preview_discarded"))
+            self._on_discard()
+        self.destroy()
 
 
 class CacheDialog(tk.Toplevel):
