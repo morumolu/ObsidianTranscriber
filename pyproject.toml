@@ -12,6 +12,7 @@ dependencies = [
     "sounddevice>=0.5.5",
     "soundfile>=0.14.0",
     "tkinterdnd2>=0.4.3",
+    "ttkbootstrap>=1.20.4",
     "typer>=0.25.1",
     "tzdata>=2026.2",
 ]
@@ -52,5 +53,7 @@ module = [
     "sounddevice",
     "soundfile",
     "tqdm.*",
+    "ttkbootstrap",
+    "ttkbootstrap.*",
 ]
 ignore_missing_imports = true

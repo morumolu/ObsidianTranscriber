@@ -12,8 +12,8 @@ datas = []
 binaries = []
 hiddenimports = []
 
-# ドラッグ&ドロップ (tkdnd バイナリを同梱)
-for mod in ("tkinterdnd2",):
+# ドラッグ&ドロップ (tkdnd バイナリ) + ttkbootstrap テーマ
+for mod in ("tkinterdnd2", "ttkbootstrap"):
     d, b, h = collect_all(mod)
     datas += d
     binaries += b

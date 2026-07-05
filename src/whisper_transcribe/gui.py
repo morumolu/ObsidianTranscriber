@@ -6,8 +6,10 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import font as tkfont
 from typing import Any, Callable, cast
 
+import ttkbootstrap as tb
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from .config import (
@@ -33,25 +35,20 @@ from .runner import (
 APP_TITLE = "Whisper - Audio Transcription Tool For Obsidian"
 APP_VERSION = "0.1.0"
 
-# カラーパレット (目に優しい緑系ライトテーマ + ダークなログ領域)
-BG = "#f2f6f2"
+# カラーパレット (ttkbootstrap "minty" テーマ準拠 + ダークなログ領域)
+BG = "#ffffff"
 SURFACE = "#ffffff"
-BORDER = "#d3ded4"
-TEXT = "#24312a"
-TEXT_MUTED = "#68766d"
-ACCENT = "#4e9161"
-ACCENT_ACTIVE = "#3f7a50"
-ACCENT_DISABLED = "#a8cdb4"
-DROP_BG = "#e8f2ea"
-DROP_ACTIVE_BG = "#d7e9dc"
-RECORD = "#e5484d"
-RECORD_ACTIVE = "#c73840"
-LEVEL_GREEN = "#6fbf73"
-LOG_BG = "#202b24"
-LOG_FG = "#d4ddd6"
+BORDER = "#dce5e0"
+TEXT = "#5a5a5a"
+TEXT_MUTED = "#9aa8a1"
+ACCENT = "#78c2ad"
+DROP_BG = "#eaf7f2"
+DROP_ACTIVE_BG = "#d5efe4"
+LOG_BG = "#22332d"
+LOG_FG = "#d8e2dc"
 
 FONT_UI = ("Yu Gothic UI", 10)
-FONT_UI_BOLD = ("Yu Gothic UI", 10, "bold")
+FONT_TITLE = ("Yu Gothic UI", 18, "bold")
 FONT_DROP = ("Yu Gothic UI", 11)
 FONT_LOG = ("Consolas", 9)
 
@@ -77,8 +74,8 @@ class WhisperGui:
     def __init__(self, root: TkinterDnD.Tk) -> None:
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("720x640")
-        self.root.minsize(560, 480)
+        self.root.geometry("720x700")
+        self.root.minsize(600, 540)
         self.root.configure(bg=BG)
 
         self.input_path: Path | None = None
@@ -111,92 +108,16 @@ class WhisperGui:
 
     # ---------------------------------------------------------------- style
     def _setup_style(self) -> None:
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
+        style = tb.Style(theme="minty")
 
-        style.configure(".", background=BG, foreground=TEXT, font=FONT_UI)
-        style.configure("TFrame", background=BG)
-        style.configure("TLabel", background=BG, foreground=TEXT)
-        style.configure("Muted.TLabel", background=BG, foreground=TEXT_MUTED)
+        # アプリ全体の既定フォントを Yu Gothic UI に統一
+        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
+            tkfont.nametofont(name).configure(family="Yu Gothic UI", size=10)
 
-        style.configure(
-            "TButton",
-            background=SURFACE,
-            foreground=TEXT,
-            bordercolor=BORDER,
-            focusthickness=1,
-            padding=(10, 4),
-        )
-        style.map("TButton", background=[("active", "#e3ede5")])
-
-        style.configure(
-            "Accent.TButton",
-            background=ACCENT,
-            foreground="#ffffff",
-            bordercolor=ACCENT,
-            font=FONT_UI_BOLD,
-            padding=(12, 8),
-        )
-        style.map(
-            "Accent.TButton",
-            background=[("disabled", ACCENT_DISABLED), ("active", ACCENT_ACTIVE)],
-            foreground=[("disabled", "#f0f0f0")],
-        )
-
-        style.configure(
-            "Record.TButton",
-            background=RECORD,
-            foreground="#ffffff",
-            bordercolor=RECORD,
-            font=FONT_UI_BOLD,
-            padding=(12, 8),
-        )
-        style.map("Record.TButton", background=[("active", RECORD_ACTIVE)])
-
-        style.configure(
-            "TLabelframe",
-            background=BG,
-            bordercolor=BORDER,
-            relief="solid",
-            borderwidth=1,
-        )
-        style.configure("TLabelframe.Label", background=BG, foreground=TEXT_MUTED, font=FONT_UI)
-
-        style.configure(
-            "TEntry",
-            fieldbackground=SURFACE,
-            bordercolor=BORDER,
-            padding=4,
-        )
-        style.configure("TCombobox", fieldbackground=SURFACE, bordercolor=BORDER, padding=4)
-
-        style.configure(
-            "Treeview",
-            background=SURFACE,
-            fieldbackground=SURFACE,
-            foreground=TEXT,
-            bordercolor=BORDER,
-            rowheight=24,
-        )
-        style.configure("Treeview.Heading", background="#e3ede5", foreground=TEXT, font=FONT_UI)
-        style.map("Treeview", background=[("selected", ACCENT)], foreground=[("selected", "#ffffff")])
-
-        style.configure(
-            "Horizontal.TProgressbar",
-            troughcolor="#e1eae3",
-            background=ACCENT,
-            bordercolor=BORDER,
-            lightcolor=ACCENT,
-            darkcolor=ACCENT,
-        )
-        style.configure(
-            "Level.Horizontal.TProgressbar",
-            troughcolor="#e1eae3",
-            background=LEVEL_GREEN,
-            bordercolor=BORDER,
-            lightcolor=LEVEL_GREEN,
-            darkcolor=LEVEL_GREEN,
-        )
+        style.configure("Muted.TLabel", foreground=TEXT_MUTED, font=FONT_UI)
+        style.configure("AppTitle.TLabel", foreground=ACCENT, font=FONT_TITLE)
+        style.configure("Treeview", rowheight=26)
+        self.root.configure(bg=style.colors.bg)
 
     # ----------------------------------------------------------------- menu
     def _build_menu(self) -> None:
@@ -312,6 +233,14 @@ class WhisperGui:
 
     # ------------------------------------------------------------------- UI
     def _build_widgets(self) -> None:
+        # ヘッダー (アプリ名 + サブタイトル)
+        header = ttk.Frame(self.root)
+        header.pack(fill="x", padx=16, pady=(14, 4))
+        ttk.Label(header, text="Whisper", style="AppTitle.TLabel").pack(side="left")
+        ttk.Label(header, text=tr("app_subtitle"), style="Muted.TLabel").pack(
+            side="left", padx=(10, 0), pady=(10, 0)
+        )
+
         # ドロップゾーン
         self.drop_zone = tk.Label(
             self.root,
@@ -321,39 +250,42 @@ class WhisperGui:
             bg=DROP_BG,
             fg=ACCENT,
             font=FONT_DROP,
-            highlightthickness=2,
+            highlightthickness=1,
             highlightbackground=BORDER,
             highlightcolor=ACCENT,
         )
-        self.drop_zone.pack(fill="x", padx=12, pady=(12, 8))
+        self.drop_zone.pack(fill="x", padx=16, pady=(8, 12))
         dnd_zone = cast(Any, self.drop_zone)
         dnd_zone.drop_target_register(DND_FILES)
         dnd_zone.dnd_bind("<<Drop>>", self._on_drop)
         dnd_zone.dnd_bind("<<DropEnter>>", self._on_drop_enter)
         dnd_zone.dnd_bind("<<DropLeave>>", self._on_drop_leave)
 
-        # 入力ファイル表示
-        in_frame = ttk.Frame(self.root)
-        in_frame.pack(fill="x", padx=12, pady=4)
-        ttk.Label(in_frame, text=tr("label_input"), width=8).pack(side="left")
+        # 入出力 (グリッドで揃える)
+        io_frame = ttk.Frame(self.root)
+        io_frame.pack(fill="x", padx=16, pady=2)
+        io_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(io_frame, text=tr("label_input"), style="Muted.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(0, 10), pady=4
+        )
         self.input_var = tk.StringVar(value=tr("not_selected"))
-        ttk.Label(in_frame, textvariable=self.input_var, foreground=ACCENT).pack(
-            side="left", fill="x", expand=True, padx=6
+        ttk.Label(io_frame, textvariable=self.input_var, foreground=ACCENT).grid(
+            row=0, column=1, sticky="w"
         )
 
-        # 出力ファイル名 (編集可能)
-        out_frame = ttk.Frame(self.root)
-        out_frame.pack(fill="x", padx=12, pady=4)
-        ttk.Label(out_frame, text=tr("label_output"), width=8).pack(side="left")
+        ttk.Label(io_frame, text=tr("label_output"), style="Muted.TLabel").grid(
+            row=1, column=0, sticky="w", padx=(0, 10), pady=4
+        )
         self.output_var = tk.StringVar()
-        self.output_entry = ttk.Entry(out_frame, textvariable=self.output_var)
-        self.output_entry.pack(side="left", fill="x", expand=True, padx=6)
+        self.output_entry = ttk.Entry(io_frame, textvariable=self.output_var)
+        self.output_entry.grid(row=1, column=1, sticky="ew")
 
         # オプション行
         opt_frame = ttk.Frame(self.root)
-        opt_frame.pack(fill="x", padx=12, pady=4)
+        opt_frame.pack(fill="x", padx=16, pady=(10, 4))
 
-        ttk.Label(opt_frame, text=tr("label_model")).pack(side="left")
+        ttk.Label(opt_frame, text=tr("label_model"), style="Muted.TLabel").pack(side="left")
         saved_model = get_str("model_size", ModelSize.large_v3.value)
         if saved_model not in {m.value for m in ModelSize}:
             saved_model = ModelSize.large_v3.value
@@ -365,55 +297,77 @@ class WhisperGui:
             state="readonly",
             width=16,
         )
-        model_box.pack(side="left", padx=(4, 12))
+        model_box.pack(side="left", padx=(6, 16))
 
-        ttk.Label(opt_frame, text=tr("label_language")).pack(side="left")
+        ttk.Label(opt_frame, text=tr("label_language"), style="Muted.TLabel").pack(side="left")
         self.language_var = tk.StringVar(value=get_str("audio_language", "ja"))
-        ttk.Entry(opt_frame, textvariable=self.language_var, width=6).pack(side="left", padx=(4, 12))
+        ttk.Entry(opt_frame, textvariable=self.language_var, width=6).pack(side="left", padx=(6, 16))
 
         self.timestamps_var = tk.BooleanVar(value=get_bool("timestamps", False))
-        ttk.Checkbutton(opt_frame, text=tr("check_timestamps"), variable=self.timestamps_var).pack(side="left")
+        tb.Checkbutton(
+            opt_frame,
+            text=tr("check_timestamps"),
+            variable=self.timestamps_var,
+            bootstyle="success-round-toggle",
+        ).pack(side="left")
 
         # 実行ボタン + 録音ボタン + レベルメータ
         action_frame = ttk.Frame(self.root)
-        action_frame.pack(fill="x", padx=12, pady=8)
-        self.record_button = ttk.Button(
-            action_frame, text=tr("btn_record_start"), command=self._toggle_record
-        )
-        self.record_button.pack(side="left", padx=(0, 8), ipady=4)
-        self.level_meter = ttk.Progressbar(
+        action_frame.pack(fill="x", padx=16, pady=12)
+        self.record_button = tb.Button(
             action_frame,
-            style="Level.Horizontal.TProgressbar",
+            text=tr("btn_record_start"),
+            bootstyle="danger-outline",
+            command=self._toggle_record,
+        )
+        self.record_button.pack(side="left", padx=(0, 8), ipady=2)
+        self.level_meter = tb.Progressbar(
+            action_frame,
+            bootstyle="info",
             mode="determinate",
             maximum=100,
-            length=120,
+            length=110,
         )
-        self.level_meter.pack(side="left", padx=(0, 8))
-        self.run_button = ttk.Button(
-            action_frame, text=tr("btn_start"), style="Accent.TButton", command=self._start
+        self.level_meter.pack(side="left", padx=(0, 12))
+        self.run_button = tb.Button(
+            action_frame,
+            text=tr("btn_start"),
+            bootstyle="success",
+            command=self._start,
         )
-        self.run_button.pack(side="left", fill="x", expand=True)
-        self.test_button = ttk.Button(
+        self.run_button.pack(side="left", fill="x", expand=True, ipady=2)
+        self.test_button = tb.Button(
             action_frame,
             text=tr("btn_test", sec=f"{TEST_DURATION:.0f}"),
+            bootstyle="success-outline",
             command=lambda: self._start(test=True),
         )
-        self.test_button.pack(side="left", padx=(8, 0), ipady=4)
-        self.cancel_button = ttk.Button(
-            action_frame, text=tr("btn_cancel"), state="disabled", command=self._cancel
+        self.test_button.pack(side="left", padx=(8, 0), ipady=2)
+        self.cancel_button = tb.Button(
+            action_frame,
+            text=tr("btn_cancel"),
+            bootstyle="secondary-outline",
+            state="disabled",
+            command=self._cancel,
         )
-        self.cancel_button.pack(side="left", padx=(8, 0), ipady=4)
+        self.cancel_button.pack(side="left", padx=(8, 0), ipady=2)
 
         # 進捗バー + ステータス
-        self.progress = ttk.Progressbar(self.root, mode="determinate", maximum=100)
-        self.progress.pack(fill="x", padx=12, pady=(0, 4))
+        self.progress = tb.Progressbar(
+            self.root, bootstyle="success-striped", mode="determinate", maximum=100
+        )
+        self.progress.pack(fill="x", padx=16, pady=(0, 4))
         self.status_var = tk.StringVar(value=tr("status_idle"))
-        ttk.Label(self.root, textvariable=self.status_var, style="Muted.TLabel").pack(anchor="w", padx=12)
+        ttk.Label(self.root, textvariable=self.status_var, style="Muted.TLabel").pack(
+            anchor="w", padx=16
+        )
 
         # 処理ログ
-        ttk.Label(self.root, text=tr("label_log")).pack(anchor="w", padx=12, pady=(8, 0))
+        ttk.Label(self.root, text=tr("label_log"), style="Muted.TLabel").pack(
+            anchor="w", padx=16, pady=(10, 0)
+        )
         log_frame = ttk.Frame(self.root)
-        log_frame.pack(fill="both", expand=True, padx=12, pady=(2, 12))
+        log_frame.pack(fill="both", expand=True, padx=16, pady=(4, 14))
         self.log_text = tk.Text(
             log_frame,
             wrap="word",
@@ -423,8 +377,8 @@ class WhisperGui:
             fg=LOG_FG,
             font=FONT_LOG,
             relief="flat",
-            padx=8,
-            pady=6,
+            padx=10,
+            pady=8,
             insertbackground=LOG_FG,
         )
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
@@ -501,7 +455,7 @@ class WhisperGui:
         except RecorderError as exc:
             messagebox.showerror(tr("dlg_record_error_title"), str(exc))
             return
-        self.record_button.configure(text=tr("btn_record_stop"), style="Record.TButton")
+        self.record_button.configure(text=tr("btn_record_stop"), bootstyle="danger")
         self.run_button.configure(state="disabled")
         self._append_log(tr("log_record_start"))
         self._update_record_elapsed()
@@ -523,7 +477,7 @@ class WhisperGui:
             self._record_timer = None
 
         data = self.recorder.stop()
-        self.record_button.configure(text=tr("btn_record_start"), style="TButton")
+        self.record_button.configure(text=tr("btn_record_start"), bootstyle="danger-outline")
         self.run_button.configure(state="normal")
         self.level_meter.configure(value=0)
         self.status_var.set(tr("status_idle"))
@@ -824,13 +778,15 @@ class PreviewDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill="x", padx=12, pady=(6, 12))
-        ttk.Button(btn_frame, text=tr("btn_copy"), command=self._copy).pack(side="left")
-        ttk.Button(
-            btn_frame, text=tr("btn_save"), style="Accent.TButton", command=self._save
+        tb.Button(
+            btn_frame, text=tr("btn_copy"), bootstyle="info-outline", command=self._copy
+        ).pack(side="left")
+        tb.Button(
+            btn_frame, text=tr("btn_save"), bootstyle="success", command=self._save
         ).pack(side="right")
-        ttk.Button(btn_frame, text=tr("btn_discard"), command=self._discard).pack(
-            side="right", padx=(0, 8)
-        )
+        tb.Button(
+            btn_frame, text=tr("btn_discard"), bootstyle="secondary-outline", command=self._discard
+        ).pack(side="right", padx=(0, 8))
 
         self.protocol("WM_DELETE_WINDOW", self._discard)
         self.transient(parent)
@@ -903,9 +859,15 @@ class CacheDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill="x", padx=12, pady=(6, 12))
-        ttk.Button(btn_frame, text=tr("btn_close"), command=self.destroy).pack(side="right", padx=(6, 0))
-        ttk.Button(btn_frame, text=tr("btn_refresh"), command=self._refresh).pack(side="right", padx=(6, 0))
-        ttk.Button(btn_frame, text=tr("btn_delete_selected"), command=self._delete_selected).pack(side="right")
+        tb.Button(
+            btn_frame, text=tr("btn_close"), bootstyle="secondary", command=self.destroy
+        ).pack(side="right", padx=(6, 0))
+        tb.Button(
+            btn_frame, text=tr("btn_refresh"), bootstyle="info-outline", command=self._refresh
+        ).pack(side="right", padx=(6, 0))
+        tb.Button(
+            btn_frame, text=tr("btn_delete_selected"), bootstyle="danger-outline", command=self._delete_selected
+        ).pack(side="right")
 
     def _center_over(self, parent: tk.Tk) -> None:
         self.update_idletasks()

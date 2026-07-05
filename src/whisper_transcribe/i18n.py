@@ -35,6 +35,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "about_title": "バージョン情報",
         "about_text": "Whisper {version}\n\nfaster-whisper によるローカル音声文字起こしツール。\n結果は Obsidian 向け Markdown として保存されます。",
         # メイン画面
+        "app_subtitle": "Obsidian向けローカル音声文字起こし",
         "drop_zone": "🎵 ここに音声ファイルをドラッグ&ドロップ\n{exts}",
         "label_input": "入力:",
         "label_output": "出力:",
@@ -159,6 +160,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "about_title": "About",
         "about_text": "Whisper {version}\n\nLocal audio transcription tool powered by faster-whisper.\nResults are saved as Obsidian-friendly Markdown.",
         # Main window
+        "app_subtitle": "Local audio transcription for Obsidian",
         "drop_zone": "🎵 Drag & drop an audio file here\n{exts}",
         "label_input": "Input:",
         "label_output": "Output:",
