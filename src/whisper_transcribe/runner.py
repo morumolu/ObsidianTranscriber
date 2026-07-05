@@ -7,7 +7,7 @@ from datetime import datetime
 from functools import lru_cache
 from logging import basicConfig, getLogger
 from pathlib import Path
-from typing import Annotated, Any, Callable
+from typing import Annotated, Callable
 from zoneinfo import ZoneInfo
 
 from .model_size import ModelSize
