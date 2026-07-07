@@ -186,6 +186,14 @@ class WhisperGui:
         help_menu.add_command(label=tr("menu_about"), command=self._show_about)
         menubar.add_cascade(label=tr("menu_help"), menu=help_menu)
 
+        # ttkbootstrap 既定のハイライト (secondary=ピンク系) をアクセントの緑系に変更
+        all_menus = (
+            menubar, file_menu, tool_menu, settings_menu,
+            format_menu, language_menu, help_menu,
+        )
+        for menu in all_menus:
+            menu.configure(activebackground=ACCENT, activeforeground="#ffffff")
+
         self.root.config(menu=menubar)
 
         self.root.bind_all("<Control-o>", lambda _e: self._browse_input())
