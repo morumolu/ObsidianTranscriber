@@ -140,13 +140,13 @@ def setup_taskbar_identity(root: tk.Misc) -> None:
     ]
 
     try:
-        ctypes.windll.ole32.CoInitialize(None)
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+        ctypes.windll.ole32.CoInitialize(None)  # noqa
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)  # noqa
 
-        hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)  # GA_ROOT
+        hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)  # noqa GA_ROOT
         iid = GUID("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")  # IID_IPropertyStore
         store = ctypes.c_void_p()
-        hr = ctypes.windll.shell32.SHGetPropertyStoreForWindow(
+        hr = ctypes.windll.shell32.SHGetPropertyStoreForWindow(  # noqa
             hwnd, ctypes.byref(iid), ctypes.byref(store)
         )
         if hr != 0 or not store:
@@ -220,7 +220,8 @@ def bind_ime_font_fix(widget: tk.Widget) -> None:
 
             imm32 = ctypes.windll.imm32
             hwnd = widget.winfo_id()
-            himc = imm32.ImmGetContext(hwnd)
+
+            himc = imm32.ImmGetContext(hwnd)  # noqa
             if not himc:
                 return
             try:
@@ -228,9 +229,9 @@ def bind_ime_font_fix(widget: tk.Widget) -> None:
                 lf.lfHeight = -int(px)
                 lf.lfCharSet = 1  # DEFAULT_CHARSET
                 lf.lfFaceName = family[:31]
-                imm32.ImmSetCompositionFontW(himc, ctypes.byref(lf))
+                imm32.ImmSetCompositionFontW(himc, ctypes.byref(lf))  # noqa
             finally:
-                imm32.ImmReleaseContext(hwnd, himc)
+                imm32.ImmReleaseContext(hwnd, himc)  # noqa
         except Exception:  # noqa: BLE001 - IME調整の失敗は入力自体には影響しない
             pass
 
@@ -278,7 +279,8 @@ class WhisperGui:
         self._bind_setting_persistence()
         self.root.update_idletasks()
         setup_taskbar_identity(self.root)
-        self.root.after(100, self._poll_queue)
+
+        self.root.after(100, self._poll_queue)  # noqa
 
     def _bind_setting_persistence(self) -> None:
         """設定項目の変更を config に保存し、次回起動時に復元できるようにする。"""
@@ -393,8 +395,12 @@ class WhisperGui:
             initialvalue=current,
             parent=self.root,
         )
+
         if not fmt or fmt == current:
             return
+
+        assert fmt is not None
+
         try:
             example = datetime.now().strftime(fmt)
             invalid = set('<>:"/\\|?*') & set(example)
@@ -406,6 +412,7 @@ class WhisperGui:
                 tr("dlg_filename_format_invalid_msg", msg=exc),
             )
             return
+
         set_record_filename_format(fmt)
         self._append_log(tr("log_filename_format_set", fmt=fmt, example=example))
 
@@ -431,6 +438,9 @@ class WhisperGui:
         )
         if limit is None or limit == get_recording_cache_limit():
             return
+
+        assert limit is not None
+
         set_recording_cache_limit(limit)
         self._append_log(tr("log_recording_cache_limit_set", limit=limit))
         self._prune_recording_cache()
@@ -688,7 +698,7 @@ class WhisperGui:
         db = 20.0 * math.log10(level) if level > 0 else -60.0
         pct = max(0.0, min(100.0, (db + 60.0) / 60.0 * 100.0))
         self.level_meter.configure(value=pct)
-        self._record_timer = self.root.after(100, self._update_record_elapsed)
+        self._record_timer = self.root.after(100, self._update_record_elapsed)  # noqa
 
     def _stop_recording(self) -> None:
         if self._record_timer is not None:
@@ -913,7 +923,7 @@ class WhisperGui:
         except queue.Empty:
             pass
 
-        self.root.after(100, self._poll_queue)
+        self.root.after(100, self._poll_queue)  # noqa
 
     # --------------------------------------------------------------- preview
     def _on_preview_saved(self, path: Path) -> None:
@@ -1059,7 +1069,7 @@ class CacheDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
         self._center_over(parent)
-        self.after(100, self._poll)
+        self.after(100, self._poll)  # noqa
 
     def _build_widgets(self) -> None:
         tree_frame = ttk.Frame(self)
@@ -1159,7 +1169,7 @@ class CacheDialog(tk.Toplevel):
                     self._refresh()
         except queue.Empty:
             pass
-        self.after(100, self._poll)
+        self.after(100, self._poll)  # noqa
 
 
 def _enable_windows_dpi_awareness() -> None:
