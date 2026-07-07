@@ -64,6 +64,7 @@ Message = tuple[str, object]
 # テスト書き起こしで処理する先頭の秒数
 TEST_DURATION = 10.0
 
+
 def icon_path() -> Path:
     """アプリアイコン (.ico) のパスを返す。開発時はパッケージ内、exe では _internal 内。"""
     if getattr(sys, "frozen", False):
@@ -132,10 +133,10 @@ def setup_taskbar_identity(root: tk.Misc) -> None:
     VT_LPWSTR = 31
     PKEY_FMTID = "{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}"  # System.AppUserModel.*
     props: list[tuple[int, str]] = [
-        (5, APP_USER_MODEL_ID),               # ID
-        (2, f'"{relaunch_exe}"'),             # RelaunchCommand
-        (4, "SOTTO"),                         # RelaunchDisplayNameResource
-        (3, str(icon)),                       # RelaunchIconResource
+        (5, APP_USER_MODEL_ID),  # ID
+        (2, f'"{relaunch_exe}"'),  # RelaunchCommand
+        (4, "SOTTO"),  # RelaunchDisplayNameResource
+        (3, str(icon)),  # RelaunchIconResource
     ]
 
     try:
@@ -1170,13 +1171,14 @@ def _enable_windows_dpi_awareness() -> None:
     """
     if sys.platform != "win32":
         return
+
     import ctypes
 
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # per-monitor DPI aware
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # noqa per-monitor DPI aware
     except (AttributeError, OSError):
         try:
-            ctypes.windll.user32.SetProcessDPIAware()
+            ctypes.windll.user32.SetProcessDPIAware()  # noqa
         except (AttributeError, OSError):
             pass
 

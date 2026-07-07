@@ -15,7 +15,8 @@ DEFAULT_RECORDING_CACHE_LIMIT = 20
 
 def load_config() -> dict[str, Any]:
     try:
-        return dict(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
+        config: str = CONFIG_PATH.read_text(encoding="utf-8")
+        return dict(json.loads(config)) # noqa
     except (OSError, ValueError):
         return {}
 

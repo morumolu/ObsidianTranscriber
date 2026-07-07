@@ -287,8 +287,9 @@ def detect_language() -> str:
         if not loc:
             locale.setlocale(locale.LC_CTYPE, "")
             loc = locale.getlocale()[0] or ""
-    except Exception:  # noqa: BLE001 - 判定に失敗したら英語にフォールバック
+    except Exception:  # noqa - 判定に失敗したら英語にフォールバック
         pass
+
     low = loc.lower()
     return "ja" if ("ja" in low or "japan" in low) else "en"
 
