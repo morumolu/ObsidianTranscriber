@@ -6,7 +6,7 @@
 import locale
 from typing import Any
 
-from .config import get_value, set_value
+from ..config import get_value, set_value
 
 # (言語コード, メニュー表示名)。表示名は翻訳しない
 LANGUAGES: list[tuple[str, str]] = [("ja", "日本語"), ("en", "English")]

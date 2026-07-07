@@ -1,7 +1,7 @@
 """Windows用exeをビルドするエントリポイント (`uv run sotto-build`)。
 
-sotto.spec は相対パス (launcher_gui.py, src/...) を使っているため、
-呼び出し元のカレントディレクトリに依存しないようリポジトリルートへ移動してから実行する。
+dist/ の出力先を安定させるため、リポジトリルートへ移動してから実行する
+(spec 内のパスは SPECPATH 基準で解決される)。
 
 `--gpu` を付けると、venv 内の NVIDIA CUDA DLL を dist/SOTTO/cuda/ にコピーする。
 exe は起動時にこのフォルダを検出して GPU で動作する (無ければ CPU)。
@@ -36,7 +36,7 @@ def copy_cuda_dlls(target: Path) -> None:
 def main() -> None:
     os.chdir(PROJECT_ROOT)
     gpu = "--gpu" in sys.argv[1:]
-    pyinstaller_run(["sotto.spec", "--noconfirm"])
+    pyinstaller_run([str(PROJECT_ROOT / "packaging" / "sotto.spec"), "--noconfirm"])
     if gpu:
         copy_cuda_dlls(DIST_DIR / "cuda")
 

@@ -1,3 +1,4 @@
+"""SOTTO のメインウィンドウ (`uv run sotto-gui`)。"""
 import math
 import os
 import queue
@@ -9,13 +10,12 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
-from tkinter import font as tkfont
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 import ttkbootstrap as tb
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
-from .config import (
+from ..config import (
     get_bool,
     get_record_filename_format,
     get_recording_cache_limit,
@@ -27,215 +27,40 @@ from .config import (
     set_value,
     set_vault_dir,
 )
-from .i18n import LANGUAGES, get_language, init_language, save_language, tr
-from .model_cache import CachedModel, delete_cached_model, format_size, list_cached_models
-from .model_size import ModelSize
-from .recorder import SAMPLE_RATE, Recorder, RecorderError
-from .runner import (
+from ..core.model_size import ModelSize
+from ..core.recorder import SAMPLE_RATE, Recorder, RecorderError
+from ..core.transcribe import (
     SUPPORTED_EXTENSIONS,
     TranscriptionCancelled,
     transcribe_to_markdown,
     validate_output_path,
 )
+from .dialogs import CacheDialog, Message, PreviewDialog
+from .i18n import LANGUAGES, get_language, init_language, save_language, tr
+from .theme import (
+    ACCENT,
+    BG,
+    BORDER,
+    DROP_ACTIVE_BG,
+    DROP_BG,
+    FONT_DROP,
+    FONT_LOG,
+    LOG_BG,
+    LOG_FG,
+    setup_style,
+)
+from .win32 import (
+    bind_ime_font_fix,
+    enable_dpi_awareness,
+    icon_path,
+    setup_taskbar_identity,
+)
 
 APP_TITLE = "SOTTO - Speech to Transcribed Obsidian"
 APP_VERSION = "0.1.0"
 
-# カラーパレット (ttkbootstrap "minty" テーマ準拠 + ダークなログ領域)
-BG = "#ffffff"
-SURFACE = "#ffffff"
-BORDER = "#dce5e0"
-TEXT = "#5a5a5a"
-TEXT_MUTED = "#9aa8a1"
-ACCENT = "#78c2ad"
-DROP_BG = "#eaf7f2"
-DROP_ACTIVE_BG = "#d5efe4"
-LOG_BG = "#22332d"
-LOG_FG = "#d8e2dc"
-
-FONT_UI = ("Yu Gothic UI", 10)
-FONT_TITLE = ("Yu Gothic UI", 18, "bold")
-FONT_DROP = ("Yu Gothic UI", 11)
-FONT_LOG = ("Consolas", 9)
-
-# ワーカースレッドから GUI スレッドへ渡すメッセージ (種別, ペイロード)
-Message = tuple[str, object]
-
 # テスト書き起こしで処理する先頭の秒数
 TEST_DURATION = 10.0
-
-
-def icon_path() -> Path:
-    """アプリアイコン (.ico) のパスを返す。開発時はパッケージ内、exe では _internal 内。"""
-    if getattr(sys, "frozen", False):
-        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-        return base / "whisper_transcribe" / "assets" / "icon.ico"
-    return Path(__file__).parent / "assets" / "icon.ico"
-
-
-APP_USER_MODEL_ID = "Moru.SOTTO"
-
-
-def setup_taskbar_identity(root: tk.Misc) -> None:
-    """タスクバーへのピン留めでカスタムアイコンが使われるようにする (Windows)。
-
-    ピン留めのショートカットは既定でプロセス実行ファイルのアイコンを使うため、
-    Python ランチャー経由の起動では Tk 既定アイコンになってしまう。
-    ウィンドウのプロパティストアに AppUserModelID と Relaunch 情報
-    (起動コマンド・表示名・アイコン) を設定して解決する。
-    """
-    if sys.platform != "win32":
-        return
-
-    import ctypes
-    from ctypes import wintypes
-
-    # 再起動コマンド: exe ならそれ自身、開発時は venv の sotto-gui.exe
-    if getattr(sys, "frozen", False):
-        relaunch_exe = Path(sys.executable)
-    else:
-        relaunch_exe = Path(sys.executable).parent / "sotto-gui.exe"
-    icon = icon_path()
-    if not (relaunch_exe.exists() and icon.exists()):
-        return
-
-    class GUID(ctypes.Structure):
-        _fields_ = [
-            ("Data1", wintypes.DWORD),
-            ("Data2", wintypes.WORD),
-            ("Data3", wintypes.WORD),
-            ("Data4", ctypes.c_ubyte * 8),
-        ]
-
-        def __init__(self, guid_str: str) -> None:
-            super().__init__()
-            body = guid_str.strip("{}").split("-")
-            self.Data1 = int(body[0], 16)
-            self.Data2 = int(body[1], 16)
-            self.Data3 = int(body[2], 16)
-            rest = bytes.fromhex(body[3] + body[4])
-            for i, b in enumerate(rest):
-                self.Data4[i] = b
-
-    class PROPERTYKEY(ctypes.Structure):
-        _fields_ = [("fmtid", GUID), ("pid", wintypes.DWORD)]
-
-    class PROPVARIANT(ctypes.Structure):
-        _fields_ = [
-            ("vt", wintypes.USHORT),
-            ("wReserved1", wintypes.USHORT),
-            ("wReserved2", wintypes.USHORT),
-            ("wReserved3", wintypes.USHORT),
-            ("pwszVal", ctypes.c_wchar_p),
-            ("_pad", ctypes.c_void_p),
-        ]
-
-    VT_LPWSTR = 31
-    PKEY_FMTID = "{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}"  # System.AppUserModel.*
-    props: list[tuple[int, str]] = [
-        (5, APP_USER_MODEL_ID),  # ID
-        (2, f'"{relaunch_exe}"'),  # RelaunchCommand
-        (4, "SOTTO"),  # RelaunchDisplayNameResource
-        (3, str(icon)),  # RelaunchIconResource
-    ]
-
-    try:
-        ctypes.windll.ole32.CoInitialize(None)  # noqa
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)  # noqa
-
-        hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)  # noqa GA_ROOT
-        iid = GUID("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")  # IID_IPropertyStore
-        store = ctypes.c_void_p()
-        hr = ctypes.windll.shell32.SHGetPropertyStoreForWindow(  # noqa
-            hwnd, ctypes.byref(iid), ctypes.byref(store)
-        )
-        if hr != 0 or not store:
-            return
-
-        # IPropertyStore vtable: 6=SetValue, 7=Commit, 2=Release
-        vtbl = ctypes.cast(
-            ctypes.cast(store, ctypes.POINTER(ctypes.c_void_p)).contents,
-            ctypes.POINTER(ctypes.c_void_p),
-        )
-        set_value = ctypes.WINFUNCTYPE(
-            ctypes.HRESULT, ctypes.c_void_p,
-            ctypes.POINTER(PROPERTYKEY), ctypes.POINTER(PROPVARIANT),
-        )(vtbl[6])
-        commit = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p)(vtbl[7])
-        release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtbl[2])
-
-        try:
-            for pid, value in props:
-                key = PROPERTYKEY(GUID(PKEY_FMTID), pid)
-                var = PROPVARIANT()
-                var.vt = VT_LPWSTR
-                var.pwszVal = value
-                set_value(store, ctypes.byref(key), ctypes.byref(var))
-            commit(store)
-        finally:
-            release(store)
-    except (OSError, AttributeError):
-        pass  # 失敗してもアプリ動作には影響しない
-
-
-def bind_ime_font_fix(widget: tk.Widget) -> None:
-    """IME の変換中文字列のフォントをウィジェットに合わせる (Windows)。
-
-    未確定文字列は IME が独自の「コンポジションフォント」で描画するため、
-    何もしないとウィジェットの文字と大きさが揃わない。フォーカス取得時に
-    ImmSetCompositionFontW でウィジェットと同じフォント・ピクセル高を設定する。
-    """
-    if sys.platform != "win32":
-        return
-
-    import ctypes
-    from ctypes import wintypes
-
-    class LOGFONTW(ctypes.Structure):
-        _fields_ = [
-            ("lfHeight", wintypes.LONG),
-            ("lfWidth", wintypes.LONG),
-            ("lfEscapement", wintypes.LONG),
-            ("lfOrientation", wintypes.LONG),
-            ("lfWeight", wintypes.LONG),
-            ("lfItalic", wintypes.BYTE),
-            ("lfUnderline", wintypes.BYTE),
-            ("lfStrikeOut", wintypes.BYTE),
-            ("lfCharSet", wintypes.BYTE),
-            ("lfOutPrecision", wintypes.BYTE),
-            ("lfClipPrecision", wintypes.BYTE),
-            ("lfQuality", wintypes.BYTE),
-            ("lfPitchAndFamily", wintypes.BYTE),
-            ("lfFaceName", ctypes.c_wchar * 32),
-        ]
-
-    def apply(_event: Any = None) -> None:
-        try:
-            spec = widget.cget("font") or "TkTextFont"
-            f = tkfont.Font(font=spec)
-            family = str(f.actual("family"))
-            size = int(f.actual("size"))
-            # 正のサイズはポイント。Tk と同じ換算でピクセル高に変換する
-            px = abs(size) if size < 0 else round(widget.winfo_fpixels(f"{size}p"))
-
-            imm32 = ctypes.windll.imm32
-            hwnd = widget.winfo_id()
-
-            himc = imm32.ImmGetContext(hwnd)  # noqa
-            if not himc:
-                return
-            try:
-                lf = LOGFONTW()
-                lf.lfHeight = -int(px)
-                lf.lfCharSet = 1  # DEFAULT_CHARSET
-                lf.lfFaceName = family[:31]
-                imm32.ImmSetCompositionFontW(himc, ctypes.byref(lf))  # noqa
-            finally:
-                imm32.ImmReleaseContext(hwnd, himc)  # noqa
-        except Exception:  # noqa: BLE001 - IME調整の失敗は入力自体には影響しない
-            pass
-
-    widget.bind("<FocusIn>", apply, add="+")
 
 
 # 録音の保存フォーマット (拡張子, 表示名)。メニューと保存ダイアログで共用
@@ -273,7 +98,7 @@ class WhisperGui:
         self.ui_language_var = tk.StringVar(value=get_language())
         self.cancel_event: threading.Event | None = None
 
-        self._setup_style()
+        setup_style(self.root)
         self._build_menu()
         self._build_widgets()
         self._bind_setting_persistence()
@@ -293,19 +118,6 @@ class WhisperGui:
         ]
         for var, key in persist:
             var.trace_add("write", lambda *_a, v=var, k=key: set_value(k, v.get()))
-
-    # ---------------------------------------------------------------- style
-    def _setup_style(self) -> None:
-        style = tb.Style(theme="minty")
-
-        # アプリ全体の既定フォントを Yu Gothic UI に統一
-        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
-            tkfont.nametofont(name).configure(family="Yu Gothic UI", size=10)
-
-        style.configure("Muted.TLabel", foreground=TEXT_MUTED, font=FONT_UI)
-        style.configure("AppTitle.TLabel", foreground=ACCENT, font=FONT_TITLE)
-        style.configure("Treeview", rowheight=26)
-        self.root.configure(bg=style.colors.bg)
 
     # ----------------------------------------------------------------- menu
     def _build_menu(self) -> None:
@@ -682,7 +494,9 @@ class WhisperGui:
         try:
             self.recorder.start()
         except RecorderError as exc:
-            messagebox.showerror(tr("dlg_record_error_title"), str(exc))
+            messagebox.showerror(
+                tr("dlg_record_error_title"), tr("rec_start_failed", msg=exc)
+            )
             return
         self.record_button.configure(text=tr("btn_record_stop"), bootstyle="danger")
         self.run_button.configure(state="disabled")
@@ -961,240 +775,8 @@ class WhisperGui:
         self.log_text.configure(state="disabled")
 
 
-class PreviewDialog(tk.Toplevel):
-    """文字起こし結果を保存前に確認・編集するモーダルダイアログ。"""
-
-    def __init__(
-            self,
-            parent: tk.Tk,
-            content: str,
-            output_path: Path,
-            log: Callable[[str], None],
-            on_saved: Callable[[Path], None],
-            on_discard: Callable[[], None],
-    ) -> None:
-        super().__init__(parent)
-        self.title(tr("preview_title"))
-        self.configure(bg=BG)
-        self.geometry("640x520")
-        self.minsize(480, 360)
-
-        self._output_path = output_path
-        self._log = log
-        self._on_saved = on_saved
-        self._on_discard = on_discard
-        self._saved = False
-
-        ttk.Label(self, text=str(output_path), style="Muted.TLabel").pack(
-            anchor="w", padx=12, pady=(10, 2)
-        )
-
-        text_frame = ttk.Frame(self)
-        text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 4))
-        self.text = tk.Text(
-            text_frame,
-            wrap="word",
-            font=FONT_UI,
-            relief="flat",
-            bg=SURFACE,
-            fg=TEXT,
-            padx=8,
-            pady=6,
-        )
-        scroll = ttk.Scrollbar(text_frame, command=self.text.yview)
-        self.text.configure(yscrollcommand=scroll.set)
-        self.text.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-        self.text.insert("1.0", content)
-        bind_ime_font_fix(self.text)
-
-        btn_frame = ttk.Frame(self)
-        btn_frame.pack(fill="x", padx=12, pady=(6, 12))
-        tb.Button(
-            btn_frame, text=tr("btn_copy"), bootstyle="info-outline", command=self._copy
-        ).pack(side="left")
-        tb.Button(
-            btn_frame, text=tr("btn_save"), bootstyle="success", command=self._save
-        ).pack(side="right")
-        tb.Button(
-            btn_frame, text=tr("btn_discard"), bootstyle="secondary-outline", command=self._discard
-        ).pack(side="right", padx=(0, 8))
-
-        self.protocol("WM_DELETE_WINDOW", self._discard)
-        self.transient(parent)
-        self.grab_set()
-
-    def _content(self) -> str:
-        return self.text.get("1.0", "end-1c")
-
-    def _save(self) -> None:
-        try:
-            self._output_path.write_text(self._content(), encoding="utf-8")
-        except OSError as exc:
-            messagebox.showerror(tr("dlg_error_title"), str(exc), parent=self)
-            return
-        self._saved = True
-        self._on_saved(self._output_path)
-        self.destroy()
-
-    def _copy(self) -> None:
-        self.clipboard_clear()
-        self.clipboard_append(self._content())
-        self._log(tr("log_copied"))
-
-    def _discard(self) -> None:
-        if not self._saved:
-            self._log(tr("log_preview_discarded"))
-            self._on_discard()
-        self.destroy()
-
-
-class CacheDialog(tk.Toplevel):
-    """モデルキャッシュを一覧・削除するモーダルダイアログ。"""
-
-    def __init__(self, parent: tk.Tk, log: Callable[[str], None]) -> None:
-        super().__init__(parent)
-        self.title(tr("cache_title"))
-        self.configure(bg=BG)
-        self.resizable(False, False)
-
-        self._log = log
-        self._queue: queue.Queue[Message] = queue.Queue()
-        self._worker: threading.Thread | None = None
-        self._items: dict[str, CachedModel] = {}
-
-        self._build_widgets()
-        self._refresh()
-
-        self.transient(parent)
-        self.grab_set()
-        self._center_over(parent)
-        self.after(100, self._poll)  # noqa
-
-    def _build_widgets(self) -> None:
-        tree_frame = ttk.Frame(self)
-        tree_frame.pack(fill="both", expand=True, padx=12, pady=(12, 4))
-        self.tree = ttk.Treeview(
-            tree_frame, columns=("size",), show="tree headings", height=8, selectmode="extended"
-        )
-        self.tree.heading("#0", text=tr("cache_col_model"))
-        self.tree.heading("size", text=tr("cache_col_size"))
-        self.tree.column("#0", width=240, anchor="w")
-        self.tree.column("size", width=110, anchor="e")
-        scroll = ttk.Scrollbar(tree_frame, command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scroll.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-
-        self.total_var = tk.StringVar(value=tr("cache_total_empty"))
-        ttk.Label(self, textvariable=self.total_var, style="Muted.TLabel").pack(anchor="w", padx=12)
-
-        btn_frame = ttk.Frame(self)
-        btn_frame.pack(fill="x", padx=12, pady=(6, 12))
-        tb.Button(
-            btn_frame, text=tr("btn_close"), bootstyle="secondary", command=self.destroy
-        ).pack(side="right", padx=(6, 0))
-        tb.Button(
-            btn_frame, text=tr("btn_refresh"), bootstyle="info-outline", command=self._refresh
-        ).pack(side="right", padx=(6, 0))
-        tb.Button(
-            btn_frame, text=tr("btn_delete_selected"), bootstyle="danger-outline", command=self._delete_selected
-        ).pack(side="right")
-
-    def _center_over(self, parent: tk.Tk) -> None:
-        self.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-
-    def _refresh(self) -> None:
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
-        self._items.clear()
-
-        try:
-            cached = list_cached_models()
-        except Exception as exc:  # noqa: BLE001 - 一覧表示できなくてもダイアログは継続
-            self._log(tr("log_cache_list_failed", msg=exc))
-            cached = []
-
-        total_bytes = 0
-        for c in cached:
-            item_id = self.tree.insert("", "end", text=c.model_size, values=(c.size_str,))
-            self._items[item_id] = c
-            total_bytes += c.size_bytes
-
-        self.total_var.set(tr("cache_total", size=format_size(total_bytes), count=len(cached)))
-
-    def _delete_selected(self) -> None:
-        if self._worker and self._worker.is_alive():
-            return
-
-        selected = [self._items[i] for i in self.tree.selection() if i in self._items]
-        if not selected:
-            messagebox.showinfo(tr("dlg_no_selection_title"), tr("dlg_no_selection_msg"), parent=self)
-            return
-
-        names = "\n".join(f"- {c.model_size} ({c.size_str})" for c in selected)
-        if not messagebox.askyesno(
-                tr("dlg_confirm_delete_title"),
-                tr("dlg_confirm_delete_msg", names=names),
-                parent=self,
-        ):
-            return
-
-        self._worker = threading.Thread(target=self._delete_worker, args=(selected,), daemon=True)
-        self._worker.start()
-
-    def _delete_worker(self, cached_models: list[CachedModel]) -> None:
-        for c in cached_models:
-            try:
-                delete_cached_model(c)
-                self._queue.put(("log", tr("log_cache_deleted", name=c.model_size, size=c.size_str)))
-            except Exception as exc:  # noqa: BLE001 - GUIに表示するため全捕捉
-                self._queue.put(("log", tr("log_cache_delete_failed", name=c.model_size, msg=exc)))
-        self._queue.put(("refresh", None))
-
-    def _poll(self) -> None:
-        if not self.winfo_exists():
-            return
-        try:
-            while True:
-                kind, payload = self._queue.get_nowait()
-                message: str = cast(str, payload)
-                if kind == "log":
-                    self._log(message)
-                elif kind == "refresh":
-                    self._refresh()
-        except queue.Empty:
-            pass
-        self.after(100, self._poll)  # noqa
-
-
-def _enable_windows_dpi_awareness() -> None:
-    """プロセスを DPI 対応にする (Windows のみ)。
-
-    DPI 非対応のままだと表示スケーリング環境で通常の文字は仮想 96DPI で
-    拡大描画される一方、IME の変換中文字列は実 DPI で描画されるため、
-    変換中だけ文字が大きく見える。Tk 生成前に呼ぶこと。
-    """
-    if sys.platform != "win32":
-        return
-
-    import ctypes
-
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # noqa per-monitor DPI aware
-    except (AttributeError, OSError):
-        try:
-            ctypes.windll.user32.SetProcessDPIAware()  # noqa
-        except (AttributeError, OSError):
-            pass
-
-
 def main() -> None:
-    _enable_windows_dpi_awareness()
+    enable_dpi_awareness()
     init_language()
     root = TkinterDnD.Tk()
     WhisperGui(root)

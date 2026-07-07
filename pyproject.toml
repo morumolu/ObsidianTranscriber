@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.scripts]
-sotto = "whisper_transcribe.runner:app"
-sotto-gui = "whisper_transcribe.gui:main"
+sotto = "whisper_transcribe.cli:app"
+sotto-gui = "whisper_transcribe.ui.app:main"
 sotto-build = "whisper_transcribe.build_exe:main"
 
 [build-system]
@@ -33,6 +33,7 @@ packages = ["src/whisper_transcribe"]
 dev = [
     "mypy>=1.14.0",
     "pyinstaller>=6.21.0",
+    "pytest>=9.1.1",
 ]
 
 [tool.mypy]

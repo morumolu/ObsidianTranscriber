@@ -6,14 +6,20 @@
 生成物:
     dist/SOTTO/SOTTO.exe  (フォルダごと配布)
 """
+import os
+
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+
+# spec は packaging/ 配下にあるため、リポジトリルートを基準にパスを解決する
+ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
+ICON = os.path.join(ROOT, "src", "whisper_transcribe", "ui", "assets", "icon.ico")
 
 datas = []
 binaries = []
 hiddenimports = []
 
 # アプリアイコン (ウィンドウ表示用に _internal へ同梱)
-datas += [("src/whisper_transcribe/assets/icon.ico", "whisper_transcribe/assets")]
+datas += [(ICON, "whisper_transcribe/ui/assets")]
 
 # ドラッグ&ドロップ (tkdnd バイナリ) + ttkbootstrap テーマ
 for mod in ("tkinterdnd2", "ttkbootstrap"):
@@ -44,8 +50,8 @@ excludes = [
 ]
 
 a = Analysis(
-    ["launcher_gui.py"],
-    pathex=["src"],
+    [os.path.join(SPECPATH, "launcher_gui.py")],
+    pathex=[os.path.join(ROOT, "src")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -70,7 +76,7 @@ exe = EXE(
     upx=False,
     console=False,  # GUIアプリ。ビルド不具合の調査時は True にすると stdout/stderr が見える
     disable_windowed_traceback=False,
-    icon="src/whisper_transcribe/assets/icon.ico",
+    icon=ICON,
 )
 
 coll = COLLECT(

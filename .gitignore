@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 .venv/
 dist/
+build/
 build_pyi/
+.mypy_cache/
+.pytest_cache/
 *.spec.bak
 .idea/
