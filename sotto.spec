@@ -12,6 +12,9 @@ datas = []
 binaries = []
 hiddenimports = []
 
+# アプリアイコン (ウィンドウ表示用に _internal へ同梱)
+datas += [("src/whisper_transcribe/assets/icon.ico", "whisper_transcribe/assets")]
+
 # ドラッグ&ドロップ (tkdnd バイナリ) + ttkbootstrap テーマ
 for mod in ("tkinterdnd2", "ttkbootstrap"):
     d, b, h = collect_all(mod)
@@ -67,7 +70,7 @@ exe = EXE(
     upx=False,
     console=False,  # GUIアプリ。ビルド不具合の調査時は True にすると stdout/stderr が見える
     disable_windowed_traceback=False,
-    icon=None,
+    icon="src/whisper_transcribe/assets/icon.ico",
 )
 
 coll = COLLECT(
