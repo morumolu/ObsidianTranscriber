@@ -38,7 +38,7 @@ from .runner import (
     validate_output_path,
 )
 
-APP_TITLE = "Whisper - Audio Transcription Tool For Obsidian"
+APP_TITLE = "SOTTO - Speech to Transcribed Obsidian"
 APP_VERSION = "0.1.0"
 
 # カラーパレット (ttkbootstrap "minty" テーマ準拠 + ダークなログ領域)
@@ -322,8 +322,8 @@ class WhisperGui:
         # ヘッダー (アプリ名 + サブタイトル)
         header = ttk.Frame(self.root)
         header.pack(fill="x", padx=16, pady=(14, 4))
-        ttk.Label(header, text="Whisper", style="AppTitle.TLabel").pack(side="left")
-        ttk.Label(header, text=tr("app_subtitle"), style="Muted.TLabel").pack(
+        ttk.Label(header, text="SOTTO", style="AppTitle.TLabel").pack(side="left")
+        ttk.Label(header, text="Speech to Transcribed Obsidian", style="Muted.TLabel").pack(
             side="left", padx=(10, 0), pady=(10, 0)
         )
 

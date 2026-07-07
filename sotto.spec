@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec: Whisper GUI (onedir, windowed, CUDA非同梱/CPU動作)。
+"""PyInstaller spec: SOTTO GUI (onedir, windowed, CUDA非同梱/CPU動作)。
 
 ビルド:
-    uv run whisper-transcribe-build  (または uv run pyinstaller whisper.spec --noconfirm)
+    uv run sotto-build  (GPU版: uv run sotto-build --gpu)
 生成物:
-    dist/Whisper/Whisper.exe  (フォルダごと配布)
+    dist/SOTTO/SOTTO.exe  (フォルダごと配布)
 """
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
@@ -60,7 +60,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Whisper",
+    name="SOTTO",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -77,5 +77,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="Whisper",
+    name="SOTTO",
 )

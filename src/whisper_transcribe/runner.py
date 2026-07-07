@@ -18,8 +18,19 @@ class TranscriptionCancelled(Exception):
 
 
 def setup_cuda_dll_path() -> None:
-    """Windows環境で、venv内のNVIDIA CUDA関連DLLを検索パスに追加する。"""
+    """Windows環境で、CUDA関連DLLの場所を検索パスに追加する。
+
+    開発環境では venv 内の nvidia パッケージを、PyInstaller ビルドでは
+    exe と同じフォルダの `cuda` サブフォルダ (whisper-transcribe-build --gpu が生成)
+    を PATH に追加する。DLL が見つかれば GPU、無ければ CPU で動作する。
+    """
     if sys.platform != "win32":
+        return
+
+    if getattr(sys, "frozen", False):
+        cuda_dir = Path(sys.executable).parent / "cuda"
+        if cuda_dir.is_dir():
+            os.environ["PATH"] = str(cuda_dir) + os.pathsep + os.environ["PATH"]
         return
 
     nvidia_base = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"

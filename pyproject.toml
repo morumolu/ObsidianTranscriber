@@ -18,9 +18,9 @@ dependencies = [
 ]
 
 [project.scripts]
-whisper-transcribe = "whisper_transcribe.runner:app"
-whisper-transcribe-gui = "whisper_transcribe.gui:main"
-whisper-transcribe-build = "whisper_transcribe.build_exe:main"
+sotto = "whisper_transcribe.runner:app"
+sotto-gui = "whisper_transcribe.gui:main"
+sotto-build = "whisper_transcribe.build_exe:main"
 
 [build-system]
 requires = ["hatchling"]
