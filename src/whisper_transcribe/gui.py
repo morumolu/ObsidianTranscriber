@@ -64,6 +64,65 @@ Message = tuple[str, object]
 # テスト書き起こしで処理する先頭の秒数
 TEST_DURATION = 10.0
 
+def bind_ime_font_fix(widget: tk.Widget) -> None:
+    """IME の変換中文字列のフォントをウィジェットに合わせる (Windows)。
+
+    未確定文字列は IME が独自の「コンポジションフォント」で描画するため、
+    何もしないとウィジェットの文字と大きさが揃わない。フォーカス取得時に
+    ImmSetCompositionFontW でウィジェットと同じフォント・ピクセル高を設定する。
+    """
+    if sys.platform != "win32":
+        return
+
+    import ctypes
+    from ctypes import wintypes
+
+    class LOGFONTW(ctypes.Structure):
+        _fields_ = [
+            ("lfHeight", wintypes.LONG),
+            ("lfWidth", wintypes.LONG),
+            ("lfEscapement", wintypes.LONG),
+            ("lfOrientation", wintypes.LONG),
+            ("lfWeight", wintypes.LONG),
+            ("lfItalic", wintypes.BYTE),
+            ("lfUnderline", wintypes.BYTE),
+            ("lfStrikeOut", wintypes.BYTE),
+            ("lfCharSet", wintypes.BYTE),
+            ("lfOutPrecision", wintypes.BYTE),
+            ("lfClipPrecision", wintypes.BYTE),
+            ("lfQuality", wintypes.BYTE),
+            ("lfPitchAndFamily", wintypes.BYTE),
+            ("lfFaceName", ctypes.c_wchar * 32),
+        ]
+
+    def apply(_event: Any = None) -> None:
+        try:
+            spec = widget.cget("font") or "TkTextFont"
+            f = tkfont.Font(font=spec)
+            family = str(f.actual("family"))
+            size = int(f.actual("size"))
+            # 正のサイズはポイント。Tk と同じ換算でピクセル高に変換する
+            px = abs(size) if size < 0 else round(widget.winfo_fpixels(f"{size}p"))
+
+            imm32 = ctypes.windll.imm32
+            hwnd = widget.winfo_id()
+            himc = imm32.ImmGetContext(hwnd)
+            if not himc:
+                return
+            try:
+                lf = LOGFONTW()
+                lf.lfHeight = -int(px)
+                lf.lfCharSet = 1  # DEFAULT_CHARSET
+                lf.lfFaceName = family[:31]
+                imm32.ImmSetCompositionFontW(himc, ctypes.byref(lf))
+            finally:
+                imm32.ImmReleaseContext(hwnd, himc)
+        except Exception:  # noqa: BLE001 - IME調整の失敗は入力自体には影響しない
+            pass
+
+    widget.bind("<FocusIn>", apply, add="+")
+
+
 # 録音の保存フォーマット (拡張子, 表示名)。メニューと保存ダイアログで共用
 def record_formats() -> list[tuple[str, str]]:
     return [
@@ -307,6 +366,7 @@ class WhisperGui:
         self.output_var = tk.StringVar()
         self.output_entry = ttk.Entry(io_frame, textvariable=self.output_var)
         self.output_entry.grid(row=1, column=1, sticky="ew")
+        bind_ime_font_fix(self.output_entry)
 
         # オプション行
         opt_frame = ttk.Frame(self.root)
@@ -815,6 +875,7 @@ class PreviewDialog(tk.Toplevel):
         self.text.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
         self.text.insert("1.0", content)
+        bind_ime_font_fix(self.text)
 
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill="x", padx=12, pady=(6, 12))
@@ -980,7 +1041,28 @@ class CacheDialog(tk.Toplevel):
         self.after(100, self._poll)
 
 
+def _enable_windows_dpi_awareness() -> None:
+    """プロセスを DPI 対応にする (Windows のみ)。
+
+    DPI 非対応のままだと表示スケーリング環境で通常の文字は仮想 96DPI で
+    拡大描画される一方、IME の変換中文字列は実 DPI で描画されるため、
+    変換中だけ文字が大きく見える。Tk 生成前に呼ぶこと。
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # per-monitor DPI aware
+    except (AttributeError, OSError):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass
+
+
 def main() -> None:
+    _enable_windows_dpi_awareness()
     init_language()
     root = TkinterDnD.Tk()
     WhisperGui(root)
